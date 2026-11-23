@@ -1,5 +1,5 @@
 {
-  "name": "glitch-detector",
+  "name": "framehound",
   "version": "1.0.0",
   "scripts": {
     "generate": "node generator/run.mjs"
@@ -12,5 +12,6 @@
     "playwright": "^1.49.1"
   },
   "type": "module",
-  "private": true
+  "private": true,
+  "license": "MIT"
 }
