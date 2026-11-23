@@ -3,3 +3,6 @@ out/
 .DS_Store
 assets/
 data/
+.venv/
+runs/
+__pycache__/
