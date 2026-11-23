@@ -6,3 +6,4 @@ data/
 .venv/
 runs/
 __pycache__/
+eval-data/
