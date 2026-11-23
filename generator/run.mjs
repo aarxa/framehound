@@ -2,7 +2,7 @@
 //
 // Dataset mode (default): one glitch per scene, the clean frame saved once (it doubles as a "no glitch" example),
 // a fixed train/val split by seed, and a dataset.json summary.
-//   node generator/run.mjs --count 5000 --out data/v1 [--workers 4] [--start 1]
+//   node generator/run.mjs --count 5000 --out data/v1 [--workers 4] [--start 1] [--width 768 --height 432]
 //
 // Sheet mode: every glitch type on every scene, for eyeballing with generator/sheet.mjs.
 //   node generator/run.mjs --all-types --count 6 --out out/check [--types missing_texture,z_fighting]
@@ -19,7 +19,9 @@ const args = Object.fromEntries(argv.reduce((acc, a, i, all) => (a.startsWith('-
 const count = Number(args.count ?? 10);
 const start = Number(args.start ?? 1);
 const outDir = join(root, args.out ?? 'out');
-const size = Number(args.size ?? 512);
+// frames are 16:9 like game screenshots; --size N makes them square
+const width = Number(args.size ?? args.width ?? 768);
+const height = Number(args.size ?? args.height ?? 432);
 const workers = Number(args.workers ?? 4);
 const allTypes = Boolean(args['all-types']);
 const VAL_EVERY = 10; // every 10th seed goes to validation
@@ -59,7 +61,7 @@ const save = async (rel, dataUrl) => {
   await mkdir(join(file, '..'), { recursive: true });
   await writeFile(file, Buffer.from(dataUrl.split(',')[1], 'base64'));
 };
-const render = (page, seed, glitch) => page.evaluate(([s, g, n]) => window.renderSample(s, g, n, n), [seed, glitch, size]);
+const render = (page, seed, glitch) => page.evaluate(([s, g, w, h]) => window.renderSample(s, g, w, h), [seed, glitch, width, height]);
 
 // which glitch a seed gets: a hash, so it doesn't line up with the seed-based split
 const typeFor = (seed) => {
@@ -131,7 +133,7 @@ if (!allTypes) {
     commit = execSync('git rev-parse --short HEAD', { cwd: root }).toString().trim() + (execSync('git status --porcelain generator', { cwd: root }).toString().trim() ? '+dirty' : '');
   } catch {}
   await writeFile(join(outDir, 'dataset.json'), JSON.stringify({
-    generator_commit: commit, created: new Date().toISOString(), size, seeds: [start, end - 1],
+    generator_commit: commit, created: new Date().toISOString(), size: [width, height], seeds: [start, end - 1],
     val_rule: `seed % ${VAL_EVERY} == 0`, glitch_types: wanted, ...stats, seconds: Math.round(seconds),
     assets: 'Poly Haven CC0 models and HDRIs (assets/manifest.json)',
   }, null, 2));

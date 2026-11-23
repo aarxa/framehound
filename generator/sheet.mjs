@@ -14,6 +14,10 @@ const byType = {};
 for (const r of rows) (byType[r.glitch] ??= []).length < per && byType[r.glitch].push(r);
 
 const img = async (p) => `data:image/png;base64,${(await readFile(join(dir, p))).toString('base64')}`;
+// keep the frames' real shape: read width and height from the first PNG's header
+const first = await readFile(join(dir, rows[0].files.clean));
+const aspect = first.readUInt32BE(16) / first.readUInt32BE(20);
+const tileW = Math.round(200 * Math.max(1, aspect));
 let body = '';
 for (const [type, list] of Object.entries(byType)) {
   body += `<h2>${type.replace(/_/g, ' ')}</h2><div class="row">`;
@@ -29,7 +33,7 @@ const html = `<!doctype html><meta charset="utf-8"><style>
   h2 { margin: 18px 0 8px; font-weight: 600; text-transform: capitalize; }
   .row { display: flex; gap: 18px; }
   .trio { display: flex; gap: 4px; }
-  .trio > img, .ov { width: 200px; height: 200px; }
+  .trio > img, .ov { width: ${tileW}px; height: 200px; }
   .ov { position: relative; }
   .ov img, .ov .m { position: absolute; inset: 0; width: 100%; height: 100%; }
   .ov img { filter: grayscale(0.6) brightness(0.7); }
@@ -38,7 +42,7 @@ const html = `<!doctype html><meta charset="utf-8"><style>
 </style><body>${body}</body>`;
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
-const page = await browser.newPage({ viewport: { width: per * 630 + 60, height: 800 } });
+const page = await browser.newPage({ viewport: { width: per * (3 * tileW + 30) + 60, height: 800 } });
 await page.setContent(html, { waitUntil: 'load' });
 await page.screenshot({ path: join(dir, file), fullPage: true });
 await browser.close();
