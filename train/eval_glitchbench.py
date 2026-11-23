@@ -48,7 +48,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True)
     ap.add_argument("--data", default="eval-data/glitchbench")
-    ap.add_argument("--short-side", type=int, default=512)
+    ap.add_argument("--short-side", type=int, default=432)  # the training frames' height
     ap.add_argument("--threshold", type=float, default=0.5)
     ap.add_argument("--out", default=None)
     args = ap.parse_args()

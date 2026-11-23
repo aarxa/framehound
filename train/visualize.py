@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw
 from data import GlitchFrames
 from train import build_model
 
-TILE = 256
+TILE = 200  # tile height; width follows the frames' shape
 
 
 def overlay(rgb, mask, color):
@@ -45,7 +45,9 @@ def main():
     std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
     cols = 2
-    sheet = Image.new("RGB", (cols * (3 * TILE + 40), (args.n // cols) * (TILE + 34) + 10), (17, 17, 17))
+    _, fh, fw = ds[0][0].shape
+    tw = round(TILE * fw / fh)
+    sheet = Image.new("RGB", (cols * (3 * tw + 40), (args.n // cols) * (TILE + 34) + 10), (17, 17, 17))
     draw = ImageDraw.Draw(sheet)
     with torch.no_grad():
         for n, i in enumerate(idx):
@@ -55,9 +57,9 @@ def main():
             p_type = type_logits.softmax(1)[0].cpu().numpy()
             rgb = (x.permute(1, 2, 0).numpy() * std + mean).clip(0, 1)
             tiles = [rgb, overlay(rgb, m[0].numpy(), (1.0, 0.18, 0.33)), overlay(rgb, prob, (0.2, 0.85, 1.0))]
-            ox, oy = (n % cols) * (3 * TILE + 40) + 10, (n // cols) * (TILE + 34) + 10
+            ox, oy = (n % cols) * (3 * tw + 40) + 10, (n // cols) * (TILE + 34) + 10
             for k, t in enumerate(tiles):
-                sheet.paste(Image.fromarray((t * 255).astype(np.uint8)).resize((TILE, TILE)), (ox + k * TILE, oy))
+                sheet.paste(Image.fromarray((t * 255).astype(np.uint8)).resize((tw, TILE)), (ox + k * tw, oy))
             truth = types[int(y)]
             guess = types[int(p_type.argmax())]
             ok = (int(y) > 0) == (p_type[0] < 0.5)

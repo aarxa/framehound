@@ -69,4 +69,9 @@ class GlitchFrames(Dataset):
         x = torch.from_numpy(arr).permute(2, 0, 1).float()
         x = (x - torch.tensor([0.485, 0.456, 0.406])[:, None, None]) / torch.tensor([0.229, 0.224, 0.225])[:, None, None]
         m = torch.from_numpy((np.asarray(mask) > 127).astype(np.float32))[None]
+        if not self.train:
+            # full frames go through the U-Net whole, so pad height and width up to a multiple of 32
+            ph, pw = (-x.shape[1]) % 32, (-x.shape[2]) % 32
+            x = torch.nn.functional.pad(x, (0, pw, 0, ph))
+            m = torch.nn.functional.pad(m, (0, pw, 0, ph))
         return x, m, label
