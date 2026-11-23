@@ -8,7 +8,7 @@ Early days: the data generator works; the model comes next.
 
 ## Generator
 
-Random three.js scenes, rendered headless in Chrome. Five glitch types so far:
+Random three.js scenes built from real CC0 models under HDRI lighting, rendered headless in Chrome. Seven glitch types so far:
 
 | Glitch | What breaks |
 |---|---|
@@ -17,6 +17,8 @@ Random three.js scenes, rendered headless in Chrome. Five glitch types so far:
 | `z_fighting` | two surfaces at the same depth flicker through each other |
 | `black_object` | shading breaks (NaN normals, failed shader) and the object renders black |
 | `inside_out` | culling/winding is flipped and you see the object's back faces |
+| `shadow_acne` | the shadow bias is wrong and surfaces shadow themselves in stripes and patches |
+| `stretched_texture` | texture coordinates are corrupted and the texture smears into streaks or noise |
 
 ```bash
 npm install

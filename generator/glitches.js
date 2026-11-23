@@ -115,10 +115,47 @@ function insideOut({ objects }, r) {
   return { target: target.name };
 }
 
+// The shadow bias is wrong, so surfaces shadow themselves in stripes and moiré ("shadow acne").
+function shadowAcne({ sun }, r) {
+  const how = pick(r, ['zero-bias', 'positive-bias', 'low-res-zero-bias']);
+  // just slightly wrong gives stripes; much more than ~0.001 shadows whole surfaces instead, which isn't acne
+  sun.shadow.bias = how === 'positive-bias' ? range(r, 0.0001, 0.0006) : 0;
+  sun.shadow.normalBias = 0;
+  if (how === 'low-res-zero-bias') sun.shadow.mapSize.set(256, 256);
+  if (sun.shadow.map) {
+    // the shadow map is rebuilt on the next render with the new settings
+    sun.shadow.map.dispose();
+    sun.shadow.map = null;
+  }
+  return { how, bias: sun.shadow.bias };
+}
+
+// Texture coordinates are corrupted, so the texture smears into streaks or turns to noise.
+function stretchedTexture({ objects }, r) {
+  const textured = objects.filter((o) => o.geometry.attributes.uv && materialsOf(o).some((m) => m.map));
+  if (!textured.length) return { target: null }; // nothing textured to break; the sample gets retried
+  const target = pick(r, textured);
+  const uv = ownGeometry(target).attributes.uv;
+  const how = pick(r, ['collapse-u', 'collapse-v', 'shrink', 'scramble']);
+  const cu = r();
+  const cv = r();
+  const k = range(r, 0.005, 0.03);
+  for (let i = 0; i < uv.count; i++) {
+    if (how === 'collapse-u') uv.setX(i, cu);
+    else if (how === 'collapse-v') uv.setY(i, cv);
+    else if (how === 'shrink') uv.setXY(i, cu + (uv.getX(i) - cu) * k, cv + (uv.getY(i) - cv) * k);
+    else if (r() < 0.35) uv.setXY(i, r() * 4, r() * 4);
+  }
+  uv.needsUpdate = true;
+  return { target: target.name, how };
+}
+
 export const GLITCHES = {
   missing_texture: missingTexture,
   exploded_vertices: explodedVertices,
   z_fighting: zFighting,
   black_object: blackObject,
   inside_out: insideOut,
+  shadow_acne: shadowAcne,
+  stretched_texture: stretchedTexture,
 };
