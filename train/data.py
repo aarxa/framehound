@@ -35,11 +35,16 @@ class GlitchFrames(Dataset):
         if limit:
             rows = rows[:limit]
         self.items = []
+        seen_clean = set()
         for r in rows:
             f = r["files"]
             # the last field is the scene's glitch mask, used only to aim crops (for the clean frame too)
             self.items.append((f["glitched"], f["mask"], self.types.index(r["glitch"]), r["seed"], f["mask"]))
-            self.items.append((f["clean"], None, 0, r["seed"], f["mask"]))
+            # Captured pages share one clean frame among several glitches. Training takes it once per glitch (each time
+            # with its own crop and augmentation, so clean and broken stay balanced); validation counts it once.
+            if train or f["clean"] not in seen_clean:
+                self.items.append((f["clean"], None, 0, r["seed"], f["mask"]))
+                seen_clean.add(f["clean"])
 
     def __len__(self):
         return len(self.items)

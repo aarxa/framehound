@@ -82,6 +82,8 @@ def main():
     ap.add_argument("--match-detail", type=int, default=250)  # the clean screenshots' height; 0 turns it off
     ap.add_argument("--threshold", type=float, default=0.5)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--exclude-trained", default=None,
+                    help="a captured dataset's manifest.jsonl; clean screenshots of pages it trained on are left out")
     args = ap.parse_args()
 
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -90,7 +92,7 @@ def main():
     model = build_model(len(types), ck["encoder"], pretrained=False)
     model.load_state_dict(ck["model"])
     model.to(device).eval()
-    out = Path(args.out or Path(args.ckpt).parent / f"clean_test_{args.match_detail or 'native'}")
+    out = Path(args.out or Path(args.ckpt).parent / f"clean_test_{args.match_detail or 'native'}{'_heldout' if args.exclude_trained else ''}")
     out.mkdir(parents=True, exist_ok=True)
 
     @torch.no_grad()
@@ -111,6 +113,11 @@ def main():
         files = [{"file": p.name, "example": p.stem, "skipped_in_threejs_tests": False}
                  for p in sorted(clean_dir.iterdir()) if p.suffix.lower() in (".jpg", ".jpeg", ".png")]
 
+    if args.exclude_trained:
+        rows_ = [json.loads(line) for line in Path(args.exclude_trained).read_text().splitlines() if line]
+        trained = {r["app"] for r in rows_ if r["split"] == "train"}
+        files = [f for f in files if f["example"] not in trained]
+        print(f"{len(trained)} trained pages left out; {len(files)} clean screenshots remain")
     parquets = sorted(glob.glob(f"{args.glitchbench}/*.parquet"))
     if not files or not parquets:
         raise SystemExit(f"need clean frames in {clean_dir} and GlitchBench parquet files in {args.glitchbench}")

@@ -495,6 +495,7 @@
     let changed = 0;
     let strong = 0;
     let sum = 0;
+    const strongAt = wantMask ? new Uint8Array(outW * outH) : null;
     const m = wantMask ? document.createElement('canvas') : null;
     let out = null;
     if (m) {
@@ -508,7 +509,10 @@
       if (on) {
         changed++;
         sum += d;
-        if (d > STRONG) strong++;
+        if (d > STRONG) {
+          strong++;
+          if (strongAt) strongAt[i >> 2] = 1;
+        }
       }
       if (out) {
         out.data[i] = out.data[i + 1] = out.data[i + 2] = on ? 255 : 0;
@@ -516,7 +520,56 @@
       }
     }
     if (m) m.getContext('2d').putImageData(out, 0, 0);
-    return { fraction: changed / (outW * outH), strong: strong / (outW * outH), mean: changed ? sum / changed : 0, mask: m };
+    return { fraction: changed / (outW * outH), strong: strong / (outW * outH), mean: changed ? sum / changed : 0, mask: m, strongAt };
+  }
+
+  // Size of the biggest connected patch of plainly changed pixels, counting no further than `enough`. Scattered
+  // speckles (particles drawn in another order) change many pixels but nothing a person would see.
+  function biggestPatch(at, enough) {
+    const seen = new Uint8Array(at.length);
+    const stack = new Int32Array(at.length);
+    let best = 0;
+    for (let s = 0; s < at.length; s++) {
+      if (!at[s] || seen[s]) continue;
+      let top = 0;
+      let size = 0;
+      stack[top++] = s;
+      seen[s] = 1;
+      while (top) {
+        const p = stack[--top];
+        size++;
+        const x = p % outW;
+        const y = (p / outW) | 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= outW || ny >= outH) continue;
+          const q = ny * outW + nx;
+          if (at[q] && !seen[q]) {
+            seen[q] = 1;
+            stack[top++] = q;
+          }
+        }
+      }
+      best = Math.max(best, size);
+      if (best >= enough) return best;
+    }
+    return best;
+  }
+
+  // Spread of brightness over the frame; near zero means the glitch left an empty frame (all black, say), which
+  // looks the same as a clean empty scene.
+  function spread(canvas) {
+    const d = canvas.getContext('2d').getImageData(0, 0, outW, outH).data;
+    let s = 0;
+    let s2 = 0;
+    const n = d.length / 4;
+    for (let i = 0; i < d.length; i += 4) {
+      const l = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+      s += l;
+      s2 += l * l;
+    }
+    return Math.sqrt(Math.max(0, s2 / n - (s / n) ** 2));
   }
   // Frames count as the same only when identical: a camera still easing to a stop drifts away from the clean frame
   // while glitches are drawn, so settle() steps until the motion has shrunk below what a pixel can show.
@@ -578,8 +631,10 @@
     return false;
   }
 
-  // minStrong: share of the frame that must change plainly (by more than STRONG), so faint glitches are left out
-  function sample({ type, seed, tries = 6, minFraction = 0.002, maxFraction = 0.6, minStrong = 0.001 }) {
+  // minStrong: share of the frame that must change plainly (by more than STRONG), so faint glitches are left out.
+  // minPatch: pixels in the biggest connected patch of plain change. minSpread: brightness spread the broken frame
+  // must keep, so a glitch that blanks the whole frame is left out.
+  function sample({ type, seed, tries = 6, minFraction = 0.002, maxFraction = 0.6, minStrong = 0.001, minPatch = 150, minSpread = 6 }) {
     if (!clean) return { ok: false, reason: 'not settled' };
     const rnd = mulberry(seed);
     const candidates = cleanDraws.filter((d) => d.eligible.includes(type));
@@ -601,6 +656,12 @@
       const m = diff(clean, glitched, DIFF_THRESHOLD, true);
       if (m.fraction < minFraction || m.fraction > maxFraction || m.strong < minStrong) {
         rejected.push(`fraction ${m.fraction.toFixed(4)} strong ${m.strong.toFixed(4)}`);
+        continue;
+      }
+      const patch = biggestPatch(m.strongAt, minPatch);
+      const sp = spread(glitched);
+      if (patch < minPatch || sp < minSpread) {
+        rejected.push(`patch ${patch} spread ${sp.toFixed(1)}`);
         continue;
       }
       return {
