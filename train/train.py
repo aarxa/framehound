@@ -92,16 +92,21 @@ def main():
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--limit", type=int, default=None, help="use only the first N scenes per split (smoke tests)")
+    ap.add_argument("--only", default=None, help="comma-separated glitch types; scenes with other glitches are left out (both frames)")
+    ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
-    torch.manual_seed(0)
+    torch.manual_seed(args.seed)
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     types = load_types(args.data)
+    only = args.only.split(",") if args.only else None
+    if only and not set(only) <= set(types[1:]):
+        raise SystemExit(f"unknown glitch types in --only: {sorted(set(only) - set(types[1:]))}")
 
-    train_ds = GlitchFrames(args.data, "train", args.size, train=True, limit=args.limit)
-    val_ds = GlitchFrames(args.data, "val", train=False, limit=args.limit and max(1, args.limit // 9))
+    train_ds = GlitchFrames(args.data, "train", args.size, train=True, limit=args.limit, only=only)
+    val_ds = GlitchFrames(args.data, "val", train=False, limit=args.limit and max(1, args.limit // 9), only=only)
     train_dl = DataLoader(train_ds, args.batch, shuffle=True, num_workers=args.workers, drop_last=True, persistent_workers=args.workers > 0)
     val_dl = DataLoader(val_ds, 8, shuffle=False, num_workers=args.workers, persistent_workers=args.workers > 0)
 

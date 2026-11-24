@@ -25,13 +25,13 @@ def load_types(root):
 
 
 class GlitchFrames(Dataset):
-    def __init__(self, root, split, size=384, train=True, limit=None):
+    def __init__(self, root, split, size=384, train=True, limit=None, only=None):
         self.root = Path(root)
         self.size = size
         self.train = train
-        self.types = load_types(root)
+        self.types = load_types(root)  # always the full list, so the model's outputs keep the same meaning
         rows = [json.loads(line) for line in (self.root / "manifest.jsonl").read_text().splitlines() if line]
-        rows = [r for r in rows if r["split"] == split]
+        rows = [r for r in rows if r["split"] == split and (only is None or r["glitch"] in only)]
         if limit:
             rows = rows[:limit]
         self.items = []
