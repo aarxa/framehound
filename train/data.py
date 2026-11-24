@@ -1,4 +1,10 @@
-"""Dataset: each generated scene gives two examples, the glitched frame with its mask and the clean frame with an empty mask."""
+"""Dataset: each generated scene gives two examples, the glitched frame with its mask and the clean frame with an empty mask.
+
+Training uses random crops, so a crop can miss the glitch entirely. A crop of a glitched frame with almost no glitch
+pixels left is the clean frame in all but noise, so it is labelled "none"; otherwise the model is taught that normal
+pictures can be broken. Half the crops are aimed at a glitch pixel so enough of them still show the glitch, and the
+clean frame of the same scene is aimed at the same place, so where a crop sits never gives the answer away.
+"""
 import io
 import json
 import random
@@ -8,6 +14,9 @@ import numpy as np
 import torch
 from PIL import Image, ImageFilter
 from torch.utils.data import Dataset
+
+AIM_AT_GLITCH = 0.5  # share of training crops placed so they contain a glitch pixel
+MIN_GLITCH_PIXELS = 64  # fewer glitch pixels than this left in a crop (at full resolution) and it counts as clean
 
 
 def load_types(root):
@@ -28,18 +37,26 @@ class GlitchFrames(Dataset):
         self.items = []
         for r in rows:
             f = r["files"]
-            self.items.append((f["glitched"], f["mask"], self.types.index(r["glitch"]), r["seed"]))
-            self.items.append((f["clean"], None, 0, r["seed"]))
+            # the last field is the scene's glitch mask, used only to aim crops (for the clean frame too)
+            self.items.append((f["glitched"], f["mask"], self.types.index(r["glitch"]), r["seed"], f["mask"]))
+            self.items.append((f["clean"], None, 0, r["seed"], f["mask"]))
 
     def __len__(self):
         return len(self.items)
 
-    def _augment(self, img, mask):
-        # same random crop and flip for image and mask
+    def _augment(self, img, mask, aim):
+        # same crop and flip for image and mask; returns how many glitch pixels the crop kept
         w, h = img.size
         scale = random.uniform(0.5, 1.0)
         cw = ch = int(min(w, h) * scale ** 0.5)
-        x, y = random.randint(0, w - cw), random.randint(0, h - ch)
+        ys, xs = np.nonzero(aim)
+        if len(xs) and random.random() < AIM_AT_GLITCH:
+            k = random.randrange(len(xs))
+            x = random.randint(max(0, xs[k] - cw + 1), min(w - cw, xs[k]))
+            y = random.randint(max(0, ys[k] - ch + 1), min(h - ch, ys[k]))
+        else:
+            x, y = random.randint(0, w - cw), random.randint(0, h - ch)
+        kept = int((np.asarray(mask.crop((x, y, x + cw, y + ch))) > 127).sum())
         img = img.crop((x, y, x + cw, y + ch)).resize((self.size, self.size), Image.BILINEAR)
         mask = mask.crop((x, y, x + cw, y + ch)).resize((self.size, self.size), Image.NEAREST)
         if random.random() < 0.5:
@@ -56,14 +73,17 @@ class GlitchFrames(Dataset):
             arr = arr * random.uniform(0.8, 1.2) + random.uniform(-0.08, 0.08)  # exposure / offset
         if random.random() < 0.2:
             arr = arr + np.random.normal(0, random.uniform(0.005, 0.03), arr.shape)
-        return np.clip(arr, 0, 1), mask
+        return np.clip(arr, 0, 1), mask, kept
 
     def __getitem__(self, i):
-        path, mask_path, label, seed = self.items[i]
+        path, mask_path, label, seed, aim_path = self.items[i]
         img = Image.open(self.root / path).convert("RGB")
         mask = Image.open(self.root / mask_path).convert("L") if mask_path else Image.new("L", img.size, 0)
         if self.train:
-            arr, mask = self._augment(img, mask)
+            aim = np.asarray(mask if mask_path else Image.open(self.root / aim_path).convert("L")) > 127
+            arr, mask, kept = self._augment(img, mask, aim)
+            if label and kept < MIN_GLITCH_PIXELS:
+                label, mask = 0, Image.new("L", mask.size, 0)  # the crop missed the glitch
         else:
             arr = np.asarray(img, dtype=np.float32) / 255.0
         x = torch.from_numpy(arr).permute(2, 0, 1).float()
