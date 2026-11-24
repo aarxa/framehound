@@ -1,0 +1,2006 @@
+{
+ "source": "VideoGameQA-Bench image glitch detection (https://huggingface.co/datasets/taesiri/VideoGameQA-Bench, CC BY 4.0)",
+ "note": "Kind of glitch in each screenshot labelled glitched. First-pass tags from 3x3 contact sheets with some close-ups, not yet checked by hand. rendering: the picture itself is drawn wrong; other: placement, movement, animation, clipping, UI or gameplay; unclear: no glitch visible at that size, or can not tell which kind.",
+ "tags": {
+  "001e50a6-ab92-4d67-9bbf-98c412123f10": {
+   "tag": "other",
+   "what": "player sunk waist-deep into ground slab by lava"
+  },
+  "0029b513-d5a0-4d8e-b412-3c8f922eb6eb": {
+   "tag": "other",
+   "what": "party member overlapping/clipping into creature"
+  },
+  "007e8302-c3a7-4fc0-bf1d-5d7e01e0ffc9": {
+   "tag": "rendering",
+   "what": "ground/terrain missing past the alley; buildings float over sky void"
+  },
+  "00d36b63-0145-4b17-8d80-710b3f8e1403": {
+   "tag": "unclear",
+   "what": "two characters talking, no visible glitch"
+  },
+  "0106d2da-8c07-4b12-b672-ea62689dbe40": {
+   "tag": "other",
+   "what": "scope view misaligned with weapon"
+  },
+  "0134e1e4-1295-451e-bab4-89ee8d0caec2": {
+   "tag": "other",
+   "what": "characters clipping through railing"
+  },
+  "01eefee7-ff43-4bb3-a9b2-cd9ff7f8c1bc": {
+   "tag": "unclear",
+   "what": "dark night scene, rider on horse"
+  },
+  "023bf08f-0971-46da-a761-fe6adf10b4b4": {
+   "tag": "unclear",
+   "what": "Batman climbing into vent, no clear defect"
+  },
+  "028a9c8f-eb2b-469b-bd5a-0c6d68174559": {
+   "tag": "unclear",
+   "what": "character in cover by doorway, nothing obvious"
+  },
+  "02952bd1-2a06-4a81-ab31-b818cad8af56": {
+   "tag": "other",
+   "what": "ragdoll bodies piled on table"
+  },
+  "0345953a-6fd8-43b1-b69d-6c9f78000d6b": {
+   "tag": "unclear",
+   "what": "long white pole from held item, may be the item itself"
+  },
+  "03781b34-b0a4-4ccf-bfab-68cc943c3ef1": {
+   "tag": "other",
+   "what": "knife and pistol held at once"
+  },
+  "0483ee14-afa8-45fc-b073-9ddb42da4d08": {
+   "tag": "other",
+   "what": "prone character with gun posed oddly"
+  },
+  "04ad1b6a-3f51-4ff5-948c-01994e023b5d": {
+   "tag": "unclear",
+   "what": "room with bodies on floor"
+  },
+  "04c4e3b9-a409-4685-968a-53f0087d01d5": {
+   "tag": "other",
+   "what": "enemy stuck on/in crate under tarp"
+  },
+  "04eed3f6-e577-40de-bd34-1d956e71711f": {
+   "tag": "other",
+   "what": "NPC in T-pose"
+  },
+  "05018c0a-84cb-476f-af7b-1ff1f0630728": {
+   "tag": "other",
+   "what": "soldier in T-pose-like stance"
+  },
+  "05086975-a0a9-4e2f-906c-12855dec2dd8": {
+   "tag": "unclear",
+   "what": "character by computers, nothing obvious"
+  },
+  "06aa2242-2a4a-49d0-b75b-b04d350dc99d": {
+   "tag": "unclear",
+   "what": "very dark scene with sparkles"
+  },
+  "07270894-964a-40ca-bf5d-5e37aafae58d": {
+   "tag": "other",
+   "what": "extra weapon clipping/floating on character"
+  },
+  "075fa6cf-16f0-48b6-bc76-f084741bb7d9": {
+   "tag": "unclear",
+   "what": "dark room, hands and wheel"
+  },
+  "07a4a0b4-1ac8-4dfc-8781-95337fb95a8a": {
+   "tag": "other",
+   "what": "character floating in air over swamp"
+  },
+  "07d4b5d8-d133-4bc4-824d-39c136deff1d": {
+   "tag": "other",
+   "what": "character clipping into vault wall"
+  },
+  "08506a80-23a9-4911-a6af-c0035433380a": {
+   "tag": "other",
+   "what": "Batman suspended mid-air on cable"
+  },
+  "08704d9a-ae98-4cc0-a45f-f2588158adfe": {
+   "tag": "other",
+   "what": "police car crashed into/overlapping ambulance"
+  },
+  "098fd069-c4b3-41eb-b501-05b27fa87cbc": {
+   "tag": "unclear",
+   "what": "plane in flight with waypoints, no visible defect"
+  },
+  "0a147809-17c5-43f1-9b5f-c6adeda6856a": {
+   "tag": "other",
+   "what": "NPC in T-pose"
+  },
+  "0a6f6aca-f567-43a3-b28d-4da2db2640fe": {
+   "tag": "other",
+   "what": "NPC in T-pose"
+  },
+  "0ba5c0aa-bffd-4c80-b6ad-e3ec0699ebca": {
+   "tag": "other",
+   "what": "character posed oddly at vehicle"
+  },
+  "0c83598f-6aa8-4273-a8e9-f57d6cd192f8": {
+   "tag": "unclear",
+   "what": "interior with characters, nothing obvious"
+  },
+  "0cdf84c2-2d79-402a-a8e2-38576de53faa": {
+   "tag": "unclear",
+   "what": "dark first-person Pip-Boy view"
+  },
+  "0ce6d472-131b-431d-af3e-6fc7947bcd17": {
+   "tag": "other",
+   "what": "two characters merged into each other"
+  },
+  "0ce7b582-5168-4cc5-9d2f-3fb5faa177ac": {
+   "tag": "unclear",
+   "what": "dark ruins with characters"
+  },
+  "0d3d63a2-e447-4c33-b2f5-49d4bf915fc6": {
+   "tag": "unclear",
+   "what": "football game menu screen"
+  },
+  "0e6ff7d9-b40b-4fe4-99ed-d2faaf3be140": {
+   "tag": "other",
+   "what": "characters in stiff T-pose-like poses"
+  },
+  "0f714c17-e140-4c44-a89f-a52aa2e5194f": {
+   "tag": "unclear",
+   "what": "third-person character, nothing obvious"
+  },
+  "0f9f4766-9f85-447f-82a4-143ee4fbfe2e": {
+   "tag": "other",
+   "what": "truck cab jackknifed/clipping into load"
+  },
+  "0fa250a7-d288-455b-b221-a74af7290ab4": {
+   "tag": "unclear",
+   "what": "whole scene washed grey-blue, likely fog/effect"
+  },
+  "0fa9774b-249a-4af6-a15e-857622a2ac01": {
+   "tag": "unclear",
+   "what": "plane in flight, no visible defect"
+  },
+  "0ff87cd3-6955-44e5-83b3-c78a7150c1d2": {
+   "tag": "unclear",
+   "what": "NPC seated at table, can't tell"
+  },
+  "104ce24c-3d69-4806-9d9a-9fa0ec8e5c2a": {
+   "tag": "other",
+   "what": "detached head/hat floating by wall"
+  },
+  "106a1abc-fade-45ed-bdd4-ad0898892f89": {
+   "tag": "unclear",
+   "what": "sandstorm scene with giant figure"
+  },
+  "1088ce2a-18c7-4f0b-852e-efa383c8161a": {
+   "tag": "other",
+   "what": "trophy floating/clipping in golfer's hands"
+  },
+  "11bb52d4-e603-49f8-b32f-7beb50802ad1": {
+   "tag": "other",
+   "what": "NPC standing on car hood"
+  },
+  "121f6811-86d6-4256-8d7f-5a8f8e8cbb41": {
+   "tag": "unclear",
+   "what": "zombie and blood, unclear glitch"
+  },
+  "12b80c9e-7405-4fb5-a3a0-eac40b2f84e0": {
+   "tag": "other",
+   "what": "character standing on humvee roof"
+  },
+  "12dd25ce-1d7c-42cf-a979-4a35235addcc": {
+   "tag": "unclear",
+   "what": "dark cave scene"
+  },
+  "12e1306b-a99f-482a-898b-c93a4a85e7cb": {
+   "tag": "unclear",
+   "what": "dark corridor with soldiers"
+  },
+  "1380b835-76aa-413f-a4cd-56f459dcfee9": {
+   "tag": "other",
+   "what": "bag clipping through character"
+  },
+  "139dc360-69c6-47cf-9d3d-68e63dad13aa": {
+   "tag": "other",
+   "what": "character clipping into crates"
+  },
+  "14634947-b071-4e04-a856-3a54864bcb7c": {
+   "tag": "other",
+   "what": "characters clipping into each other"
+  },
+  "1491fb6a-b634-4cd1-9719-a2cb494502c8": {
+   "tag": "other",
+   "what": "character floating above forest floor"
+  },
+  "1496329f-4a3c-4cd4-9c8c-e16d1947020a": {
+   "tag": "unclear",
+   "what": "NPC doctor in hallway"
+  },
+  "14c3ed44-52a6-4734-be44-1ca8214c6c07": {
+   "tag": "other",
+   "what": "trucks/trailer clipping"
+  },
+  "15c4b13b-3159-433d-afeb-22ad092202f2": {
+   "tag": "unclear",
+   "what": "room full of scattered items, bright patch likely sunlight"
+  },
+  "1609c44e-aab2-43ab-a72a-5c3bfd64d12b": {
+   "tag": "unclear",
+   "what": "dialogue scene, nothing obvious"
+  },
+  "17867d5a-1732-4b66-b287-cfeae20f862a": {
+   "tag": "other",
+   "what": "character clipping through car body, hand out of grille"
+  },
+  "18063759-98da-4960-8181-ed6279af397e": {
+   "tag": "other",
+   "what": "body lying in odd pose"
+  },
+  "181e7de9-af2e-4937-84df-b69f0c956d6a": {
+   "tag": "unclear",
+   "what": "NPC seated on bench"
+  },
+  "18763866-799f-4434-bc3d-92079c1c4bba": {
+   "tag": "unclear",
+   "what": "soldiers sitting by rocks"
+  },
+  "187ea4d6-c1dc-4fb2-ab25-9d223c8b71ac": {
+   "tag": "unclear",
+   "what": "lobby menu with operator"
+  },
+  "189a0c1e-451b-433a-a2c5-acd16d9f316a": {
+   "tag": "unclear",
+   "what": "dark scene, crouching by body"
+  },
+  "18b0f2c5-2023-44b2-886a-f9dcdbd2b6e4": {
+   "tag": "other",
+   "what": "ships beached on land"
+  },
+  "18fc7030-bd49-4d0b-9e6f-9f41cf082ca8": {
+   "tag": "unclear",
+   "what": "desert, body lying on ground"
+  },
+  "191006f4-b89a-4974-bf76-279e4bb1c6b2": {
+   "tag": "unclear",
+   "what": "character sitting on boat bow"
+  },
+  "19805bb8-a0d3-4139-b60b-d4c304a5c4ba": {
+   "tag": "unclear",
+   "what": "plane in odd attitude, can't tell"
+  },
+  "19ff1c88-d325-40fa-bfc3-d0d62cc983cd": {
+   "tag": "unclear",
+   "what": "character on sidewalk, nothing obvious"
+  },
+  "1aa435cc-19b1-4ec9-8bcc-b574945d8d4f": {
+   "tag": "unclear",
+   "what": "prone player in grass"
+  },
+  "1af6a393-fb8f-419e-b0e5-8bbcc4b7e0a0": {
+   "tag": "other",
+   "what": "zombies floating/clipping into wall"
+  },
+  "1bbfbcc5-85ce-4bab-b206-d6219f3b3ff6": {
+   "tag": "unclear",
+   "what": "Bane dialog scene, green streak object"
+  },
+  "1beff26f-0b19-4a63-826c-a299c5ffed0d": {
+   "tag": "unclear",
+   "what": "night combat scene"
+  },
+  "1c059e00-430d-448b-b16d-0e99b3cdd702": {
+   "tag": "other",
+   "what": "woman sitting in mid-air at table"
+  },
+  "1c44f581-abe6-4eb4-ada6-3b340adaa7ad": {
+   "tag": "unclear",
+   "what": "NPC by bench on street"
+  },
+  "1cf179d3-0c70-480c-a717-7f6b6aeceefc": {
+   "tag": "other",
+   "what": "ragdolled soldier bodies"
+  },
+  "1d29a21a-454f-4645-a302-9cbe9d72ed4d": {
+   "tag": "other",
+   "what": "pilot sitting on top of plane outside cockpit"
+  },
+  "1db6191f-58d1-4057-b961-f00af6b807af": {
+   "tag": "other",
+   "what": "characters overlapping each other"
+  },
+  "1dbfaf61-45e7-4d63-bb28-99d2bb96e194": {
+   "tag": "other",
+   "what": "car floating, wheels detached on floor"
+  },
+  "1e025e06-7f6d-498f-bc22-7228af7119ed": {
+   "tag": "other",
+   "what": "NPC in T-pose"
+  },
+  "1f28165b-4ada-43b8-b0cc-d3b4420867ff": {
+   "tag": "other",
+   "what": "two soldiers occupying same spot"
+  },
+  "1f334910-9a44-47d3-9414-b99b363e6085": {
+   "tag": "other",
+   "what": "several medics stacked/clipping"
+  },
+  "1f8aa59c-c3dc-400e-a8f4-a0283d0a7b93": {
+   "tag": "unclear",
+   "what": "forest with stump, no visible defect"
+  },
+  "20c56510-8dbe-4a3c-836b-eea2856697a2": {
+   "tag": "other",
+   "what": "cars overlapping/clipping"
+  },
+  "21155cc6-ddd4-494d-9e4a-e099847edb47": {
+   "tag": "unclear",
+   "what": "wagon on desert road"
+  },
+  "214e7d84-5e1c-4100-8178-f946ddaf229f": {
+   "tag": "other",
+   "what": "player body clipping through vehicle cockpit"
+  },
+  "22c22d81-f1c7-4836-989a-5465e49fae29": {
+   "tag": "unclear",
+   "what": "zombie at desk, blood"
+  },
+  "24395916-0f80-49c5-8217-8e34f498271b": {
+   "tag": "rendering",
+   "what": "pirate face missing, only teeth/inside of head shown"
+  },
+  "24edfbdb-af1b-403e-8fa7-51042738cc80": {
+   "tag": "other",
+   "what": "bodies flying/ragdolling in air"
+  },
+  "261fc1c3-04d8-4a4a-a8ca-af98c59d7902": {
+   "tag": "unclear",
+   "what": "player in desert with rifle"
+  },
+  "273997d3-25b3-4be2-a808-e459ba84178a": {
+   "tag": "unclear",
+   "what": "night event scene, nothing clear"
+  },
+  "281cff19-daec-42e0-859d-2fbc7bcfa137": {
+   "tag": "other",
+   "what": "ships beached on land"
+  },
+  "29676992-d87a-4b2a-9d4d-98dd41065e8e": {
+   "tag": "unclear",
+   "what": "characters in room, nothing obvious"
+  },
+  "2a535c65-818a-4628-adc8-3075a0f76d67": {
+   "tag": "unclear",
+   "what": "truck by stone wall, can't tell"
+  },
+  "2a69ef6a-4085-4557-8ed6-aad2a9e0cc41": {
+   "tag": "rendering",
+   "what": "world geometry in fragments floating in white void"
+  },
+  "2a973598-d33d-478e-a737-93b4acf2b934": {
+   "tag": "unclear",
+   "what": "attic with characters on beams"
+  },
+  "2cc8095f-f5f9-4b17-b4ad-6a5545009f5c": {
+   "tag": "other",
+   "what": "character clipping into another at table"
+  },
+  "2ebac71c-dbb7-499b-a69f-d11dbe125d00": {
+   "tag": "unclear",
+   "what": "explosion in dark cave"
+  },
+  "2f1f2a55-7682-40d5-b40d-45bf73f307ce": {
+   "tag": "unclear",
+   "what": "mountain view, no visible defect"
+  },
+  "2f36e0d1-ccd0-4c09-bb4e-7a68af2da449": {
+   "tag": "other",
+   "what": "two heads clipping into each other"
+  },
+  "2f7dab07-ecfd-436a-b72c-5256389b9bde": {
+   "tag": "other",
+   "what": "soldiers clipping into vehicle"
+  },
+  "2fa294c6-852b-4fc9-9c75-c11bac50b2b3": {
+   "tag": "other",
+   "what": "view-model weapon held wrongly"
+  },
+  "3069a5ba-6cb9-4402-9ff9-3a4c4271d5ac": {
+   "tag": "unclear",
+   "what": "sniper scope view"
+  },
+  "3080344f-06e2-45f4-88fa-374851857ed9": {
+   "tag": "unclear",
+   "what": "interior by window"
+  },
+  "30d6861d-1119-4419-a96b-73ac24dbe60a": {
+   "tag": "unclear",
+   "what": "tank with tilted launcher"
+  },
+  "30fcbec5-6f2b-4ab8-9e95-5b780d8a5ed2": {
+   "tag": "unclear",
+   "what": "railway yard, nothing obvious"
+  },
+  "318cc8a6-d094-4eb0-82b0-e992dd6b7471": {
+   "tag": "unclear",
+   "what": "three-character portrait"
+  },
+  "323deb0f-b8f5-417c-b178-7b3f0f9091f5": {
+   "tag": "other",
+   "what": "soldier floating in air"
+  },
+  "32f6cb2d-233b-47e9-9157-465efe60c9e8": {
+   "tag": "unclear",
+   "what": "NPC with rifle, nothing clear"
+  },
+  "32fd6a84-3fc7-4b3a-a765-03148cea926d": {
+   "tag": "other",
+   "what": "body lying with contorted arms"
+  },
+  "331fe8ab-0013-4818-9f87-f83e0871c03c": {
+   "tag": "unclear",
+   "what": "soldiers in camp"
+  },
+  "337ae1eb-7e60-4c86-bafa-ad518df24b82": {
+   "tag": "unclear",
+   "what": "masked character in cabin"
+  },
+  "34467ae6-de89-4653-8e3c-7b3b44d3c4cf": {
+   "tag": "unclear",
+   "what": "dark scene, character by wall"
+  },
+  "346a804f-e81b-4cba-95f4-2688db389740": {
+   "tag": "other",
+   "what": "NPC in T-pose-like stance"
+  },
+  "350417ed-5cc3-4fe4-b99e-56cdae2fb839": {
+   "tag": "unclear",
+   "what": "beach with sitting character"
+  },
+  "350ee105-703d-401f-b2b2-73d65519de69": {
+   "tag": "other",
+   "what": "character hanging mid-air on rope"
+  },
+  "359481ed-101a-4464-8de7-c00620f50677": {
+   "tag": "other",
+   "what": "lobby characters overlapping"
+  },
+  "35a16474-eeb0-4d65-9456-7445907afcfa": {
+   "tag": "unclear",
+   "what": "night map, nothing clear"
+  },
+  "362fa37e-44e1-4046-87e0-f0d793250c48": {
+   "tag": "unclear",
+   "what": "hangar menu with helicopter"
+  },
+  "3654c619-6022-43bb-8e00-47f775494b38": {
+   "tag": "unclear",
+   "what": "office interior"
+  },
+  "36d9eb20-cfcb-4e77-a3f5-45733411de39": {
+   "tag": "unclear",
+   "what": "truck close-up, can't tell"
+  },
+  "36e4f527-a81b-452e-abc6-a15e2e5feafe": {
+   "tag": "unclear",
+   "what": "survivors on deck, nothing clear"
+  },
+  "36e70ef3-1ba6-4bb2-8d51-7084ba2af4b5": {
+   "tag": "unclear",
+   "what": "character with horses"
+  },
+  "37195365-2359-459f-a58f-7ac1e96c2e73": {
+   "tag": "unclear",
+   "what": "town street at night"
+  },
+  "385a47dd-372e-4d52-bc96-9c97b1a36aa4": {
+   "tag": "other",
+   "what": "soldiers holding rifles through bodies"
+  },
+  "38df3ad6-4e96-42f0-85de-7aaa64e1b38c": {
+   "tag": "unclear",
+   "what": "truck on road, nothing clear"
+  },
+  "38f05d37-c16a-4c41-b200-b1130df225bc": {
+   "tag": "other",
+   "what": "heap of corpses piled in room"
+  },
+  "3972370c-1f61-4f53-adfb-5aaed0a5090d": {
+   "tag": "unclear",
+   "what": "dark forest scene"
+  },
+  "3a7ec3b1-9cd7-49ed-b20b-b5236304394c": {
+   "tag": "other",
+   "what": "player stuck in/floating on wall"
+  },
+  "3af30227-5895-4d9f-b2a7-d90b90985188": {
+   "tag": "other",
+   "what": "upside-down operator in scope"
+  },
+  "3b01a092-bdee-41b0-9140-0bd219b5add8": {
+   "tag": "other",
+   "what": "tanks overlapping with soldiers on top"
+  },
+  "3b341a5a-2f31-4b7e-84de-8376e285cb37": {
+   "tag": "unclear",
+   "what": "rider and horses by ruins"
+  },
+  "3b79bf79-8a4a-43d9-9c4a-7f28674fa298": {
+   "tag": "other",
+   "what": "two NPCs overlapping on sofa"
+  },
+  "3b8a24bd-ed29-4e32-99dc-27b49fd43dc8": {
+   "tag": "rendering",
+   "what": "suit drawn flat beige, missing texture"
+  },
+  "3bab9347-a0cb-4963-98e3-db38c25e47c4": {
+   "tag": "other",
+   "what": "NPCs clipping on bench"
+  },
+  "3c2258b6-395b-4815-842d-542775228652": {
+   "tag": "rendering",
+   "what": "wall polygon stretched into long spike to horizon"
+  },
+  "3d01fadf-e811-44aa-adc8-fa8db1be45e7": {
+   "tag": "other",
+   "what": "character in contorted pose"
+  },
+  "3dc934ee-ef14-4b99-8d1b-5f75dc3ecb2c": {
+   "tag": "other",
+   "what": "first-person hands contorted"
+  },
+  "3e2378e8-e870-4f1e-bae7-aa80a8063924": {
+   "tag": "unclear",
+   "what": "character on boat"
+  },
+  "3e79cea1-2238-4d53-8d2a-2bf674b543c0": {
+   "tag": "unclear",
+   "what": "street with NPCs, nothing clear"
+  },
+  "3e7a077d-1422-4c7c-9052-a63a2eab7132": {
+   "tag": "other",
+   "what": "character sunk into rock"
+  },
+  "3e95d164-b359-4ca3-a1ad-3625d6b9d15e": {
+   "tag": "unclear",
+   "what": "warehouse shooter scene"
+  },
+  "3ebe3b21-23fc-4570-9f8e-686a7469afc0": {
+   "tag": "other",
+   "what": "character floating mid-air by structure"
+  },
+  "3ec55cda-3b19-4a1a-b648-b09c2104cbbb": {
+   "tag": "unclear",
+   "what": "street firefight"
+  },
+  "3edc95ae-68d6-4734-a2c3-18ee8ae93bc1": {
+   "tag": "other",
+   "what": "character in odd bent pose"
+  },
+  "3fbe04df-d737-41ff-834b-dad48d52d095": {
+   "tag": "unclear",
+   "what": "CS:S enemy with knife view"
+  },
+  "3fe55cfe-0c58-4976-9b63-ea847253bb9b": {
+   "tag": "other",
+   "what": "horse clipping into rock"
+  },
+  "40750177-f62c-4db3-b031-e3588e81680b": {
+   "tag": "other",
+   "what": "soldier stuck climbing building wall"
+  },
+  "408cbdd4-670a-4a32-bddf-b6cc192c6249": {
+   "tag": "unclear",
+   "what": "crowd scene, nothing clear"
+  },
+  "41472024-e2ca-4d47-86e5-316fe99e5477": {
+   "tag": "unclear",
+   "what": "church interior with players"
+  },
+  "4197c5f4-f20f-4790-919b-f00e58a17ca0": {
+   "tag": "unclear",
+   "what": "dark scene with red lights"
+  },
+  "41a1c106-ece2-47a8-bcb9-7fe29f0a56d6": {
+   "tag": "other",
+   "what": "gun clipping into door"
+  },
+  "41feb431-fb09-462a-a8ab-2a07e7f0bc63": {
+   "tag": "unclear",
+   "what": "NPCs at table"
+  },
+  "430b07f1-102d-424d-ae07-1583d8f5bfad": {
+   "tag": "rendering",
+   "what": "Heavy body not drawn in loadout, only weapon and hat"
+  },
+  "4382e83d-bd13-41ce-a2c8-a3a170c03100": {
+   "tag": "unclear",
+   "what": "town scene, nothing clear"
+  },
+  "43c7a595-1f73-493e-8d9f-ab9ba8e573e5": {
+   "tag": "unclear",
+   "what": "tavern with bodies on floor"
+  },
+  "440f6681-870d-49d5-b75b-dfe8a940bc38": {
+   "tag": "unclear",
+   "what": "soldier on road"
+  },
+  "44feedbd-54df-414f-98ed-516b4f857295": {
+   "tag": "other",
+   "what": "NPC in T-pose"
+  },
+  "4517b340-3677-4dc2-839b-2619abbdd695": {
+   "tag": "other",
+   "what": "character contorted around weapon"
+  },
+  "4524bd50-85d2-4316-b870-dcd24d5f5612": {
+   "tag": "unclear",
+   "what": "character by brick wall"
+  },
+  "465b5c77-320b-49fd-9668-65d71584c441": {
+   "tag": "other",
+   "what": "arm clipping through face"
+  },
+  "46a228d3-6e24-4a0d-9626-c6427daf2c73": {
+   "tag": "unclear",
+   "what": "character with helmet, nothing clear"
+  },
+  "498652b0-b986-4aa6-99b6-07e837470a0b": {
+   "tag": "other",
+   "what": "carriage clipping into bollard"
+  },
+  "4ad6bd82-1be6-41b3-aa38-84b4b21aecad": {
+   "tag": "unclear",
+   "what": "character portrait, collar spikes"
+  },
+  "4b576baf-cac1-4fcc-a150-bf6b99669c18": {
+   "tag": "unclear",
+   "what": "dark interior"
+  },
+  "4c14bb12-e382-41e2-bcef-be954ac8e815": {
+   "tag": "other",
+   "what": "rider fallen off bike"
+  },
+  "4db96149-f2d9-4fd5-b745-9636a4434d72": {
+   "tag": "other",
+   "what": "body clipping through wall"
+  },
+  "4dba3c7d-e3a9-4834-8b8d-fa7b71b5f689": {
+   "tag": "rendering",
+   "what": "arm mesh stretched to huge length"
+  },
+  "4df77a6d-f664-43ba-abd9-0b075f191489": {
+   "tag": "unclear",
+   "what": "scope view at night"
+  },
+  "4fd99736-39ee-4219-bb85-d9ea3fb5182c": {
+   "tag": "other",
+   "what": "ragdoll bodies"
+  },
+  "509c49e7-9cff-42a4-807b-63fb8ed0f062": {
+   "tag": "unclear",
+   "what": "top-down Batman scene"
+  },
+  "51243602-c65f-4e46-a01d-7cbefed69213": {
+   "tag": "unclear",
+   "what": "bodies on muddy road"
+  },
+  "51cbae69-15c1-4f62-bc4d-9f37457feab2": {
+   "tag": "other",
+   "what": "bomb floating/misplaced"
+  },
+  "51d0da2c-11d1-46da-a03d-5c7b3845c124": {
+   "tag": "unclear",
+   "what": "characters on hillside"
+  },
+  "52492b5a-a6d2-42f3-b077-4e1830227cd5": {
+   "tag": "other",
+   "what": "NPC stuck up a tree"
+  },
+  "529be241-390f-47a2-9ab7-b0ccd952f0f5": {
+   "tag": "other",
+   "what": "character standing on top of door"
+  },
+  "536ef381-903a-4f3b-bdb8-5c3fe6c43d34": {
+   "tag": "other",
+   "what": "character holding gun in odd pose"
+  },
+  "53b6534c-7e7b-4d98-8e3f-9617d3fc0754": {
+   "tag": "other",
+   "what": "weapon floating in air"
+  },
+  "5420ee2b-b11e-4b56-92ad-08b72f35dc0d": {
+   "tag": "unclear",
+   "what": "companion in dark room, nothing clear"
+  },
+  "5447b557-ec75-454d-b90a-1fcdabab1886": {
+   "tag": "unclear",
+   "what": "character in grass"
+  },
+  "54c41281-91a8-4105-86cf-c2e4c7d098e3": {
+   "tag": "other",
+   "what": "NPCs clipping into each other"
+  },
+  "54cec7e1-841a-4704-9998-5bb63f98d22b": {
+   "tag": "other",
+   "what": "body clipping into chair"
+  },
+  "55359ce5-694c-4424-b483-a753c18e2bc2": {
+   "tag": "unclear",
+   "what": "dark rainy scene"
+  },
+  "557da35d-3fb0-4791-a13e-efd7d9f18377": {
+   "tag": "other",
+   "what": "character floating above roof"
+  },
+  "57f485cb-5b78-4f21-9ecb-d4aa6bf27e4d": {
+   "tag": "unclear",
+   "what": "scope on soldier on roof"
+  },
+  "58b1aa56-e28f-4c02-9ab2-9d2df0d4733f": {
+   "tag": "unclear",
+   "what": "soldier crouching, nothing obvious"
+  },
+  "58bdbe5b-08fd-4701-a00e-b4fe8ca5bcbf": {
+   "tag": "unclear",
+   "what": "model with floating drones on flat map"
+  },
+  "58fc9fd0-9eb7-4f77-b60f-7d4b82353ac8": {
+   "tag": "unclear",
+   "what": "climbing cliff"
+  },
+  "59995152-8873-461d-a617-638ebd6fe6dc": {
+   "tag": "other",
+   "what": "character lying on rock ledge"
+  },
+  "59d8f1ed-0dcc-4adc-af54-650f7e5c2895": {
+   "tag": "unclear",
+   "what": "spectator view in dark room"
+  },
+  "5a422edb-b3e3-4a82-a271-93ffe785d3f7": {
+   "tag": "other",
+   "what": "structure floating in sky"
+  },
+  "5ac7a09a-24e3-4aa8-a8c0-9ad9a16d6333": {
+   "tag": "other",
+   "what": "character clipping into bed/patient"
+  },
+  "5b4bdc13-e084-437b-8945-56043b389013": {
+   "tag": "unclear",
+   "what": "snowy street combat"
+  },
+  "5c42a650-9ebb-4dd8-8c3d-a2b022c0b7eb": {
+   "tag": "unclear",
+   "what": "dialogue scene, nothing clear"
+  },
+  "5cb79814-2570-4753-b6ee-707cc202426a": {
+   "tag": "unclear",
+   "what": "dark forge"
+  },
+  "5cca6c51-71d2-43c4-903c-ee88e48986c2": {
+   "tag": "unclear",
+   "what": "ladder shaft view"
+  },
+  "5e6f011e-0bda-40ce-a2e7-a221a12f81e5": {
+   "tag": "unclear",
+   "what": "vault corridor"
+  },
+  "5e7abb3e-39a4-4217-a809-e2263697386b": {
+   "tag": "unclear",
+   "what": "dialogue in cabin"
+  },
+  "5ea74aba-de32-45d0-8339-9b23699e1006": {
+   "tag": "unclear",
+   "what": "soldiers in trench"
+  },
+  "5ef4ec28-93d9-452d-9941-61de1c20ba01": {
+   "tag": "other",
+   "what": "arm in odd pose"
+  },
+  "605810b8-413c-4a7d-835b-67560ed27f08": {
+   "tag": "other",
+   "what": "helicopter wreckage floating"
+  },
+  "6095a2ea-cffd-48da-ac02-0a8259fd629e": {
+   "tag": "other",
+   "what": "character in arms-out stiff pose"
+  },
+  "61521677-4929-48db-ad41-7958b8811b18": {
+   "tag": "unclear",
+   "what": "soldier on path"
+  },
+  "618f0630-2036-4512-9a6a-da78f70264f7": {
+   "tag": "unclear",
+   "what": "soldiers in red field"
+  },
+  "61d1b37c-43c5-42ad-b485-9f27359d1bfe": {
+   "tag": "other",
+   "what": "character clipping into wall"
+  },
+  "6335852f-eae0-471f-922d-4a8b45933593": {
+   "tag": "unclear",
+   "what": "goat on furniture"
+  },
+  "640ac9e4-d4e2-476e-a052-aebd4b439592": {
+   "tag": "unclear",
+   "what": "quidditch match"
+  },
+  "6449c8d8-48c3-4e13-947f-f8d3eb947544": {
+   "tag": "other",
+   "what": "car wheels detached and misplaced"
+  },
+  "647e6119-45df-4ada-8bcb-53654bf62143": {
+   "tag": "other",
+   "what": "character clipping into desk"
+  },
+  "64ea729a-8947-477e-888e-2faaad3c2459": {
+   "tag": "unclear",
+   "what": "characters in cabin"
+  },
+  "6563bf24-81d7-40dc-a3fb-81b58aeff0d4": {
+   "tag": "unclear",
+   "what": "dark interior firefight"
+  },
+  "667f5529-2612-4322-b6e9-81a1ab304eda": {
+   "tag": "other",
+   "what": "character sunk into floor"
+  },
+  "66c58946-62af-4045-bc21-e03da27400ab": {
+   "tag": "other",
+   "what": "burning character stuck sitting"
+  },
+  "66f78c7f-67e2-42cd-9f51-3e3df4110414": {
+   "tag": "unclear",
+   "what": "character at dark doorway"
+  },
+  "67cd269c-2bb0-44c7-9937-277cf48515bf": {
+   "tag": "other",
+   "what": "boat resting on dock/land"
+  },
+  "67d1ca2d-d085-4be2-8fa5-b210cb195699": {
+   "tag": "other",
+   "what": "character clipping into truck cab"
+  },
+  "68112af7-7f0d-4999-989d-9d2168c9ae66": {
+   "tag": "rendering",
+   "what": "floor missing, skybox drawn across lower half"
+  },
+  "684621df-5568-4510-ac22-dadb09f2b654": {
+   "tag": "other",
+   "what": "NPC sitting in mid-air"
+  },
+  "6a15e5b3-8829-4e26-b5bf-23f51f3f0cfb": {
+   "tag": "rendering",
+   "what": "character mesh deformed with spiky black polygons"
+  },
+  "6ae95f60-7eaf-4b0a-b325-5043bd59a07b": {
+   "tag": "unclear",
+   "what": "tree view, nothing clear"
+  },
+  "6b003210-9f13-4e17-a780-c16272610f21": {
+   "tag": "unclear",
+   "what": "corridor, nothing clear"
+  },
+  "6b665226-da27-43cf-aed7-b210e6a3211b": {
+   "tag": "unclear",
+   "what": "dark forest, nothing clear"
+  },
+  "6bbb470c-58b5-4f4b-828f-d871c38cf243": {
+   "tag": "other",
+   "what": "tank flipped on rock"
+  },
+  "6bd91def-7d4c-4d7d-8dda-d5c3219b026d": {
+   "tag": "other",
+   "what": "character standing in mid-air"
+  },
+  "6bff621a-bd9a-4771-a2e5-94c622db5873": {
+   "tag": "other",
+   "what": "two weapon models overlapped in item display"
+  },
+  "6cc42c45-8960-44b4-9bf2-8ab7cad579e7": {
+   "tag": "unclear",
+   "what": "gnome on grass, bodies"
+  },
+  "6e1d18db-3422-4e8a-8997-37935d9d57ca": {
+   "tag": "unclear",
+   "what": "characters by stream"
+  },
+  "6e8018a6-2be0-4d78-a546-18610d7cc630": {
+   "tag": "other",
+   "what": "shield floating in air"
+  },
+  "6ee9d350-077c-4c4f-b272-29f177b5e519": {
+   "tag": "other",
+   "what": "characters hanging in mid-air"
+  },
+  "6efc0927-5bb9-496c-9726-db93bdc17bfe": {
+   "tag": "unclear",
+   "what": "path scene, nothing clear"
+  },
+  "6f2e5620-f682-46eb-ac27-c466b4b0ca4d": {
+   "tag": "other",
+   "what": "character floating high above city"
+  },
+  "6fd574c6-436c-4230-a39d-65cb4fc26420": {
+   "tag": "other",
+   "what": "knife and pistol held at once"
+  },
+  "70564aa9-44c3-4f9a-823c-ca2b9d9f9bc9": {
+   "tag": "rendering",
+   "what": "huge hatched stretched triangles across map"
+  },
+  "706056c7-5c8c-4da6-a90e-43e34ca0b6e6": {
+   "tag": "other",
+   "what": "rider in odd pose on motorcycle"
+  },
+  "71474654-5d0b-4040-ab94-e7625cbe3b44": {
+   "tag": "unclear",
+   "what": "dark interior scene"
+  },
+  "71e63ab6-6fbd-45a9-a9fb-c096f1a2363f": {
+   "tag": "rendering",
+   "what": "blown-out white void seen through wall"
+  },
+  "728348d4-8427-43f9-8d4c-345934956c45": {
+   "tag": "unclear",
+   "what": "climbing tower ladder"
+  },
+  "732807dc-02dc-4b8c-be36-9561938e1b9d": {
+   "tag": "other",
+   "what": "players in T-pose"
+  },
+  "73723d36-6122-49cd-9eee-8a1c4cda399f": {
+   "tag": "unclear",
+   "what": "dark room, zombie at desk"
+  },
+  "73a11160-6959-4e6b-aba5-bf9d856f8efd": {
+   "tag": "unclear",
+   "what": "rock on snow"
+  },
+  "748ca1fd-08fc-42b5-8ca6-520bdf012505": {
+   "tag": "unclear",
+   "what": "first-person hand looking at sky"
+  },
+  "74fcd172-ce63-41ee-a4de-49df603ad1f0": {
+   "tag": "unclear",
+   "what": "camp scene"
+  },
+  "75042ecb-26a2-4357-a5f6-2f8b2dcf27eb": {
+   "tag": "unclear",
+   "what": "truck on highway"
+  },
+  "755842ae-7157-41d3-97c1-b8d26487cc8d": {
+   "tag": "other",
+   "what": "wrestlers clipping"
+  },
+  "758f4394-4328-4040-af2f-9841e37620e1": {
+   "tag": "other",
+   "what": "ragdoll body on rock"
+  },
+  "75af8165-ba1c-4d86-90ea-bb520d1a7087": {
+   "tag": "unclear",
+   "what": "dock scene"
+  },
+  "75cf9169-9219-4172-b978-3fad41078741": {
+   "tag": "other",
+   "what": "car flying high in the air"
+  },
+  "75fd331b-e2d9-46f3-941b-58046744789b": {
+   "tag": "unclear",
+   "what": "farm barn scene"
+  },
+  "76ef1c2f-0a2f-40af-bb06-92dc1ab5cfa6": {
+   "tag": "other",
+   "what": "horse contorted"
+  },
+  "772426d1-4bc5-4c8b-951e-4f0ed80ff80c": {
+   "tag": "other",
+   "what": "soldier clipping through counter"
+  },
+  "77850c5e-3c6d-47da-817f-2f9020f995fc": {
+   "tag": "other",
+   "what": "weapon floating on wall"
+  },
+  "78a281e8-288c-41dd-9592-57fb05903d1a": {
+   "tag": "other",
+   "what": "NPC clipping into counter"
+  },
+  "7980b64c-d091-4b1a-a44e-5004b3c06449": {
+   "tag": "unclear",
+   "what": "underwater bar scene, no visible glitch"
+  },
+  "7a15e5fa-f6fa-413d-a420-258d6ab66be2": {
+   "tag": "unclear",
+   "what": "shop NPC scene"
+  },
+  "7a187035-8dcf-4845-ac8f-465f2e50ad48": {
+   "tag": "unclear",
+   "what": "soldiers in dark room"
+  },
+  "7a55d485-0cb7-4c5c-a157-4dd9fba67ef6": {
+   "tag": "other",
+   "what": "character lying with head sunk into furniture"
+  },
+  "7b33273b-9a2f-4262-8094-510dd257b64a": {
+   "tag": "unclear",
+   "what": "truck cab interior, no visible glitch"
+  },
+  "7b3abd49-c4d6-4e15-bdac-a90004f21b56": {
+   "tag": "unclear",
+   "what": "soldiers lying on ground, nothing clearly wrong"
+  },
+  "7b5baf6c-bb34-46f4-bdee-aa3dc8341ce1": {
+   "tag": "unclear",
+   "what": "menu character, no clear glitch"
+  },
+  "7be47c9b-619e-4c2f-81ba-d3f489ed4eec": {
+   "tag": "unclear",
+   "what": "night scene, woman with flashlight, nothing obviously wrong"
+  },
+  "7c2138c7-c84b-470f-8ebb-e1ccf830e374": {
+   "tag": "unclear",
+   "what": "NPC standing by car, nothing obvious"
+  },
+  "7c3ee538-0c15-4fc8-a7aa-db0dfda0a199": {
+   "tag": "other",
+   "what": "corpse draped over and clipping into car hood"
+  },
+  "7c5a7df5-8f95-4736-935a-1e3956aa9922": {
+   "tag": "other",
+   "what": "pit crew clipping into each other and the car"
+  },
+  "7c8c3c01-d725-479f-aa10-02fc2c807f03": {
+   "tag": "unclear",
+   "what": "dark snowy scene, no clear glitch"
+  },
+  "7d131fd1-6193-4504-8440-b628414c0b7f": {
+   "tag": "unclear",
+   "what": "street scene with character climbing window, no clear glitch"
+  },
+  "7dad9ac7-e6c5-4809-a0d0-1f806a536cc0": {
+   "tag": "rendering",
+   "what": "huge stretched yellow polygon shooting out from character"
+  },
+  "7dc421fc-06aa-498a-a2e5-fa14cff14eb4": {
+   "tag": "other",
+   "what": "mugs floating in mid-air behind woman"
+  },
+  "7ef0af35-4563-41ff-81e4-a9fc5a7980cb": {
+   "tag": "other",
+   "what": "tribespeople and llamas overlapping/clipping"
+  },
+  "7f498c7b-5032-44b7-9f0d-faa42069bfbb": {
+   "tag": "unclear",
+   "what": "car driving down street, no clear glitch"
+  },
+  "7fc2d985-0afe-42c2-bb43-b9b5302be451": {
+   "tag": "other",
+   "what": "NPC sitting on nothing"
+  },
+  "7ff6582f-fc75-4ef7-9071-5aed4dac1287": {
+   "tag": "other",
+   "what": "character standing on cannon in odd spot"
+  },
+  "80221f14-dcde-4fdf-b6fd-9553ebe98c10": {
+   "tag": "other",
+   "what": "body in contorted pose on ground"
+  },
+  "805bdfe2-e6d1-4f88-851a-979e24ea90aa": {
+   "tag": "unclear",
+   "what": "costumed character beside arcade machine"
+  },
+  "81aae3b0-a5fa-4551-b804-61425fa42e30": {
+   "tag": "other",
+   "what": "plane parked on a rooftop"
+  },
+  "821f9a0a-2aca-42f7-9cfb-91e01ac616de": {
+   "tag": "unclear",
+   "what": "character standing on top of wooden doorway"
+  },
+  "8248408f-57c9-4c2c-bd44-470c6da967a4": {
+   "tag": "other",
+   "what": "hooded NPC in odd crouched pose"
+  },
+  "8273bdb6-8895-4379-90f8-0c4e900ef55d": {
+   "tag": "other",
+   "what": "camera clipped inside character"
+  },
+  "835e67b4-d6d3-43ac-b161-b059b50908a7": {
+   "tag": "unclear",
+   "what": "characters and flying creatures, no clear glitch"
+  },
+  "83e212f1-384b-4542-9ee3-645d3f0fe115": {
+   "tag": "other",
+   "what": "soldier lying in contorted pose holding rifle up"
+  },
+  "84309e91-7d7c-448b-813f-f908e3f31aeb": {
+   "tag": "rendering",
+   "what": "flat white region drawn around door frame"
+  },
+  "84cbce98-1ec7-4d73-a0ca-e9a88c0284be": {
+   "tag": "unclear",
+   "what": "guns lying in grass"
+  },
+  "853ccbb0-4967-4bb5-bf44-2e52340115fb": {
+   "tag": "other",
+   "what": "NPCs clipping into each other"
+  },
+  "85db77c0-b926-469c-84f7-11fc95fc2fe2": {
+   "tag": "other",
+   "what": "players in odd contorted poses on shore"
+  },
+  "862fcd2e-2994-479a-bc11-75c483be9859": {
+   "tag": "unclear",
+   "what": "dark barbershop scene, two characters"
+  },
+  "865c4cdd-3175-4420-9769-46131f620864": {
+   "tag": "unclear",
+   "what": "soldiers in doorway, nothing clear"
+  },
+  "8682fd3b-2279-4991-94f8-47e6a8617dea": {
+   "tag": "other",
+   "what": "people standing on top of parked plane"
+  },
+  "87884468-524d-4698-983b-3eb43d9b3ac9": {
+   "tag": "unclear",
+   "what": "woman on bench, no clear glitch"
+  },
+  "882bcc4f-cf95-487d-a509-ba6e76c08e2a": {
+   "tag": "other",
+   "what": "character floating in mid-air beside building"
+  },
+  "883c36ff-3d64-403f-9658-81bbe8ac95a1": {
+   "tag": "unclear",
+   "what": "helicopter over player, nothing clear"
+  },
+  "8a8bd30d-1185-452e-8e3d-c90c70051726": {
+   "tag": "unclear",
+   "what": "apartment room with rifle on bed, nothing clearly wrong"
+  },
+  "8b157ae7-aa21-4a75-af5f-1fdf17944894": {
+   "tag": "other",
+   "what": "camera inside character/horse"
+  },
+  "8b48cfaa-b5a5-4ecf-a256-9b2c5fad5a7c": {
+   "tag": "unclear",
+   "what": "character crouched in roof valley"
+  },
+  "8c131a17-45e2-48bc-afb4-755cb0b73ebf": {
+   "tag": "unclear",
+   "what": "dark scene, soldier sitting"
+  },
+  "8c9567ae-d415-4d7b-8200-5b9c0e84c5d6": {
+   "tag": "unclear",
+   "what": "NPC at desk, nothing clear"
+  },
+  "8d75f112-0991-464a-b2e1-2e1ffe23e4a8": {
+   "tag": "other",
+   "what": "survivor frozen in odd pose"
+  },
+  "8d8156fa-d239-46b3-a39d-6ab4654f93d6": {
+   "tag": "unclear",
+   "what": "plane in flight with thin vertical line, unclear"
+  },
+  "8e5c9ebf-9fcb-4169-b1fc-c34c990578fb": {
+   "tag": "other",
+   "what": "car wreck sunk into ground"
+  },
+  "8e5de3e1-5435-4e3f-b378-1134a76af711": {
+   "tag": "other",
+   "what": "rider in contorted pose on horse"
+  },
+  "8f1d50d0-0bd7-4591-aa5e-89a37c4b94fa": {
+   "tag": "unclear",
+   "what": "dark night scene"
+  },
+  "8f7687b9-b62a-4668-9e5f-c9a0b57bbe1b": {
+   "tag": "unclear",
+   "what": "weld tool view, no clear glitch"
+  },
+  "8ffac0c8-db48-49b7-a5e4-a67d42ec62b9": {
+   "tag": "unclear",
+   "what": "ATV on hillside"
+  },
+  "90ce23c3-a596-48b4-b628-52f5d2cf4e28": {
+   "tag": "unclear",
+   "what": "soldiers on concrete pier"
+  },
+  "90fb613a-4190-4fa6-a694-6713de0c55f5": {
+   "tag": "other",
+   "what": "tools floating in the air over beach"
+  },
+  "917ed58b-93c8-421a-9e11-14958ca5a1cc": {
+   "tag": "other",
+   "what": "cop in odd pose"
+  },
+  "91854941-7012-4e19-86b9-edd86f90dd97": {
+   "tag": "unclear",
+   "what": "Batman on tiled floor with debris"
+  },
+  "91addbe9-adfc-454c-a2cb-a10160ebae8b": {
+   "tag": "unclear",
+   "what": "grey flat ground patch hovering over street"
+  },
+  "91c9ab87-0d2c-4d36-b210-b5819f55b773": {
+   "tag": "unclear",
+   "what": "character in dark room, nothing clear"
+  },
+  "91cf4b5b-8cb2-41e4-9bde-6374fc0f8000": {
+   "tag": "unclear",
+   "what": "busy zombie scene, nothing clear"
+  },
+  "9237fc2f-bc3a-44f2-bfd4-84deafa03ddf": {
+   "tag": "other",
+   "what": "guard ragdoll lying on counter"
+  },
+  "9268f0dd-5c6c-414a-a723-586ee7a7b68d": {
+   "tag": "unclear",
+   "what": "gun lying on mattress, unclear"
+  },
+  "92925132-aca3-4684-aae2-81d55af8185a": {
+   "tag": "other",
+   "what": "characters clipping at table"
+  },
+  "935ad72c-1b79-4929-8f4e-70aa832b2540": {
+   "tag": "other",
+   "what": "car clipping into wall"
+  },
+  "9364e0ea-c85f-4887-9ae4-d805b79c6ed2": {
+   "tag": "unclear",
+   "what": "RTS overview, nothing clear"
+  },
+  "93b57ddc-cf4b-47ec-af95-1589fa637cf1": {
+   "tag": "other",
+   "what": "soldier ragdoll in contorted pose"
+  },
+  "943ae9f7-02a1-4cd7-9cd3-5fea15e4e3dc": {
+   "tag": "unclear",
+   "what": "body lying on street"
+  },
+  "94ab6897-4833-434b-ba38-2ebb9508892d": {
+   "tag": "unclear",
+   "what": "bodies lying on ground"
+  },
+  "9513a6f8-9273-456f-9323-7ae5b84283b2": {
+   "tag": "unclear",
+   "what": "rider in fog, nothing clear"
+  },
+  "95e7343a-d520-4545-ae53-aa84ee782511": {
+   "tag": "unclear",
+   "what": "dark scene, characters near vehicle"
+  },
+  "96b996f6-6d7a-4e39-a14d-3cbdbd17de2e": {
+   "tag": "unclear",
+   "what": "snowy landscape, character standing"
+  },
+  "96e914e7-3a7f-4c4c-9d77-42c75b3b3ce1": {
+   "tag": "other",
+   "what": "character clipping into doorway"
+  },
+  "98834bb0-83bd-4b71-8e10-6e91c909a424": {
+   "tag": "unclear",
+   "what": "two characters in dark room"
+  },
+  "99a3ec52-f94e-448e-a7ba-6d420b336576": {
+   "tag": "other",
+   "what": "hazmat character clipping into shelf"
+  },
+  "9a0720bf-76b7-46c9-983b-30c56aaec009": {
+   "tag": "other",
+   "what": "player out of bounds beside cliff underside"
+  },
+  "9a7dd9e3-1872-40c9-99ea-fe5b27eee1b6": {
+   "tag": "other",
+   "what": "disembodied hand holding knife on mouse pad"
+  },
+  "9bb0d429-718f-4522-9fc7-40c24bc8b2b1": {
+   "tag": "other",
+   "what": "character standing in mid-air beside roof edge"
+  },
+  "9bee47b4-f396-423a-bfe3-e2d54d3d7b35": {
+   "tag": "other",
+   "what": "mounted characters overlapping"
+  },
+  "9c33ea75-fedd-4b5d-ac9f-b2a7b370adbe": {
+   "tag": "unclear",
+   "what": "characters and dog in hangar"
+  },
+  "9c5c8802-5095-4ad6-be7e-15ff8823755c": {
+   "tag": "other",
+   "what": "character sitting on air"
+  },
+  "9d0ecc0c-833d-443b-be25-9761064c2fa2": {
+   "tag": "other",
+   "what": "character standing on platform high above city"
+  },
+  "9d49e9ce-e60d-475e-b7dc-2397850c43c2": {
+   "tag": "unclear",
+   "what": "woman seen from behind, nothing clearly wrong"
+  },
+  "9d79bd75-0b66-4947-a54e-185474f22dc6": {
+   "tag": "unclear",
+   "what": "characters on rooftop"
+  },
+  "9d938a80-bf08-476d-baa8-c954c940de48": {
+   "tag": "other",
+   "what": "window frame prop rotated and stuck on ceiling"
+  },
+  "9dc74cb0-f3b2-4029-9a38-f87216ed7411": {
+   "tag": "other",
+   "what": "character model clipping through weapon in menu"
+  },
+  "9e3674e5-a073-42b4-9d74-398cc20e1af9": {
+   "tag": "other",
+   "what": "killer in contorted pose"
+  },
+  "9e790c9b-6e17-4239-87fd-c78dd0787493": {
+   "tag": "other",
+   "what": "object floating in mid-air"
+  },
+  "9e924f45-33ad-4b0a-81e6-357e3c555492": {
+   "tag": "other",
+   "what": "characters floating/sitting in air"
+  },
+  "9ee9e20b-a79d-4075-80f5-3d38753b2c64": {
+   "tag": "other",
+   "what": "truck and tanker trailer overlapping on road"
+  },
+  "9f09fa2a-fced-43ea-98a1-a274f1f2df8d": {
+   "tag": "unclear",
+   "what": "players near stairs, unclear"
+  },
+  "9f292f3c-b0ad-475c-abb3-9ace337ec9be": {
+   "tag": "other",
+   "what": "NPC in T-pose"
+  },
+  "9fe28888-7e78-4cc8-9053-c4530d8eb42a": {
+   "tag": "unclear",
+   "what": "city street with scaffolding"
+  },
+  "a0cf43e9-5726-4bba-ae40-23f220ca707e": {
+   "tag": "other",
+   "what": "character stuck on roof"
+  },
+  "a141571c-d254-47b8-b2b1-bf863c49487a": {
+   "tag": "rendering",
+   "what": "hard-edged rectangular lit region, broken lighting"
+  },
+  "a15f546c-98b2-40aa-9813-fbd1b813156f": {
+   "tag": "other",
+   "what": "player lying on top of crate"
+  },
+  "a1e11e44-b9fe-42fb-abcd-7137f17b6628": {
+   "tag": "unclear",
+   "what": "character at window, nothing clear"
+  },
+  "a1fddfdc-bc74-4174-9fb6-4eeb9fbab2ae": {
+   "tag": "unclear",
+   "what": "spy on stairs, no clear glitch"
+  },
+  "a21748b8-4dc8-483d-9c9d-9fc317b27a75": {
+   "tag": "unclear",
+   "what": "dark room with zombie, unclear"
+  },
+  "a22fa04d-1711-44d2-87b1-80f6a8420b46": {
+   "tag": "unclear",
+   "what": "two hooded characters standing close"
+  },
+  "a240b36e-fb14-4277-add1-9af3e49365e4": {
+   "tag": "other",
+   "what": "NPCs clipping into each other"
+  },
+  "a24f793c-bfb3-4b17-8761-a33be9443995": {
+   "tag": "other",
+   "what": "car airborne with person standing on top"
+  },
+  "a25c0a1e-f724-4add-8323-ad5ac7545370": {
+   "tag": "unclear",
+   "what": "dark scene, no clear glitch"
+  },
+  "a3ee1e45-30ca-4020-9fe2-2a207ba4b891": {
+   "tag": "other",
+   "what": "sword clipping through door"
+  },
+  "a4176b15-1b96-4b3a-9d7f-314119cdf78b": {
+   "tag": "other",
+   "what": "two characters merged into each other amid planks"
+  },
+  "a434537f-e8ca-415a-85b4-f000e9e10f1a": {
+   "tag": "unclear",
+   "what": "truck parked by road"
+  },
+  "a49a3584-34dc-4899-bec5-bcef8fdb1a41": {
+   "tag": "unclear",
+   "what": "car with passengers, nothing clearly wrong"
+  },
+  "a4f2bae7-9679-49fd-8b75-b28d049df238": {
+   "tag": "unclear",
+   "what": "people at table, nothing clear"
+  },
+  "a53f1b7b-1b96-4425-8bb1-73dd9e061a26": {
+   "tag": "unclear",
+   "what": "large arch object in street"
+  },
+  "a6ede5a6-1b46-41c1-9e9e-b86faaaf7336": {
+   "tag": "unclear",
+   "what": "NPC standing in grass"
+  },
+  "a757675f-00db-4f70-9b4b-a6c75ca0112d": {
+   "tag": "other",
+   "what": "character hanging on side of huge structure in the air"
+  },
+  "a8c16245-4296-4a08-948d-c28f7308b935": {
+   "tag": "other",
+   "what": "crowd clipping into car"
+  },
+  "a8f85e9e-0693-4578-acf1-3affa0faf4d7": {
+   "tag": "other",
+   "what": "bots in odd poses"
+  },
+  "a9282872-431b-48a9-bc1d-c37e33efdac6": {
+   "tag": "other",
+   "what": "player floating above counter"
+  },
+  "a9ab21f9-8bb6-4e6b-9817-7ce9d8d15f81": {
+   "tag": "unclear",
+   "what": "soldier with weapon by house"
+  },
+  "a9c340f0-dc35-451f-8e20-0a43d56c8c0d": {
+   "tag": "unclear",
+   "what": "soldiers in field"
+  },
+  "aa0fe683-f2d6-4bd0-8dc7-369ee931e54a": {
+   "tag": "unclear",
+   "what": "distant character, nothing clear"
+  },
+  "aa700605-f781-457c-a39c-1d4b5a8a9b01": {
+   "tag": "other",
+   "what": "character standing on top of car wedged on slope"
+  },
+  "aa79cc34-76cd-422d-aeb2-a0672fcc1e51": {
+   "tag": "unclear",
+   "what": "first-person view, nothing clearly wrong"
+  },
+  "aa81bb02-9b54-4aeb-90c2-4db2c6c8980f": {
+   "tag": "other",
+   "what": "character clipping through cage"
+  },
+  "aaeaed19-4e86-4239-864b-149d1a05819f": {
+   "tag": "other",
+   "what": "NPCs sitting on air"
+  },
+  "ab908e13-4ad4-4ab5-b60b-f9243c8fc833": {
+   "tag": "other",
+   "what": "character head through ceiling"
+  },
+  "acf29822-aaf7-4141-a230-7dddaef26ee7": {
+   "tag": "unclear",
+   "what": "tank in desert on victory screen"
+  },
+  "ad3ad412-b18f-4fab-9d79-5e3fd61e59d5": {
+   "tag": "unclear",
+   "what": "duel arena, no clear glitch"
+  },
+  "ad6d8b68-d0b3-49b7-9255-96e64a3013b2": {
+   "tag": "unclear",
+   "what": "snowy map first-person, no clear glitch"
+  },
+  "ad907341-0b35-43bb-bf1d-ba4bf815d0c3": {
+   "tag": "other",
+   "what": "enemy ragdolls in contorted poses"
+  },
+  "adedde79-9be4-427e-ad83-9ccc6e7e01f9": {
+   "tag": "unclear",
+   "what": "zombie corridor, nothing clear"
+  },
+  "ae51f846-9607-4e33-8577-76a81664ba9a": {
+   "tag": "rendering",
+   "what": "store preview model missing torso and arms, floating forearm pieces"
+  },
+  "ae5473f6-3dce-48d4-ad94-5c405f18d1bc": {
+   "tag": "unclear",
+   "what": "street scene, nothing clear"
+  },
+  "b011ee55-7c72-4c0d-a09a-92d1be06c2b0": {
+   "tag": "unclear",
+   "what": "plane on snowy tarmac"
+  },
+  "b0190925-b8d0-4c89-bf1c-3e493704ad93": {
+   "tag": "other",
+   "what": "Spider-Man hanging upside down oddly"
+  },
+  "b0a86121-0c25-4144-b93b-f6179709ec00": {
+   "tag": "other",
+   "what": "player clipping into wall sign"
+  },
+  "b128642d-af09-4b30-a9cb-aca815d963f4": {
+   "tag": "unclear",
+   "what": "NPC in cabin, nothing clear"
+  },
+  "b1e1cd5f-0e27-4efa-8953-39a6adc20770": {
+   "tag": "other",
+   "what": "ragdoll body and shield clipping into wall"
+  },
+  "b1fa73d9-7fca-44f5-a8b9-fc88aefb327a": {
+   "tag": "unclear",
+   "what": "buy menu character model"
+  },
+  "b1fd6c3d-aa41-4d1a-8a6c-5f2b47d8708d": {
+   "tag": "other",
+   "what": "guard ragdoll floating"
+  },
+  "b27115b5-4654-469f-b6ff-679c49019c52": {
+   "tag": "other",
+   "what": "riders on horse in odd pose"
+  },
+  "b3d9373f-5f41-440e-8a03-7f0e2a100a38": {
+   "tag": "other",
+   "what": "survivor clipping in locker"
+  },
+  "b41d8132-436f-490f-99f4-4df9fa150a9a": {
+   "tag": "unclear",
+   "what": "striped tent on field"
+  },
+  "b50c81eb-968c-4c23-bf1f-5d08ddbed2f8": {
+   "tag": "unclear",
+   "what": "soldier prone on pier"
+  },
+  "b50e46af-45fa-47ff-9348-06e8b954a137": {
+   "tag": "unclear",
+   "what": "dark object on ground"
+  },
+  "b5dffe39-2876-418d-8d11-c7b1ab6055d5": {
+   "tag": "unclear",
+   "what": "character standing by pumpkins"
+  },
+  "b6694905-e85e-4898-af2e-ae81ebce101f": {
+   "tag": "unclear",
+   "what": "football match, nothing clear"
+  },
+  "b726ade0-cc4a-4bb9-9177-9769c0ff87d5": {
+   "tag": "other",
+   "what": "character clipping into desk"
+  },
+  "b74d2f24-58a1-4a1f-8d52-570217b923c3": {
+   "tag": "other",
+   "what": "bull mounted on cow"
+  },
+  "b77c0bd2-45fb-41f2-a16a-56dcc7ab6647": {
+   "tag": "other",
+   "what": "player clipping into door"
+  },
+  "b86822c3-ba1c-4a8a-8178-816fb8d8f769": {
+   "tag": "unclear",
+   "what": "characters among mannequins"
+  },
+  "b929e6b0-de81-48ae-b1ae-ec14e6736081": {
+   "tag": "other",
+   "what": "rider in odd pose"
+  },
+  "b9d6ade9-c25d-4e9f-bc9a-b88bcb22cbb5": {
+   "tag": "other",
+   "what": "carry pose wrong"
+  },
+  "ba0d002b-386c-4072-b73e-5ee61564c471": {
+   "tag": "unclear",
+   "what": "NPCs by house, nothing clear"
+  },
+  "ba9087e7-8fa6-4253-bf7f-1caa2c75a8e3": {
+   "tag": "unclear",
+   "what": "rock formation in forest"
+  },
+  "bb653b08-4d9e-4846-a959-d4edfccf70b5": {
+   "tag": "other",
+   "what": "characters overlapping on ladder"
+  },
+  "bb6b22ee-03a0-4878-a9cc-be710e731399": {
+   "tag": "unclear",
+   "what": "character in trailer"
+  },
+  "bc104938-ac58-41ad-adc1-91826bc7ed8b": {
+   "tag": "unclear",
+   "what": "defeat screen, nothing clear"
+  },
+  "bc25fe3c-a1b3-45db-ac52-d7936e794b78": {
+   "tag": "unclear",
+   "what": "vehicles on hillside"
+  },
+  "bdf2e00f-7602-4fca-ba79-832946ffac00": {
+   "tag": "unclear",
+   "what": "view through container window, players on rafters"
+  },
+  "be780354-53fe-434c-927d-a21c8e4d2a93": {
+   "tag": "unclear",
+   "what": "character standing on wooden floor"
+  },
+  "bef0fbc2-3342-446a-a8ff-3218a4050dad": {
+   "tag": "other",
+   "what": "safe floating/bugged"
+  },
+  "bf7d6f24-869f-48b2-a628-09cfb5bfa246": {
+   "tag": "other",
+   "what": "contorted character pose"
+  },
+  "c0aa0cec-256c-4044-b414-7a13270e7228": {
+   "tag": "other",
+   "what": "character lying sideways in mid-air"
+  },
+  "c0f99dda-d52a-4156-afc1-18e5d90c6295": {
+   "tag": "unclear",
+   "what": "character hanging on rope in dark"
+  },
+  "c1fda562-8fe8-40ff-ae64-2eca67305792": {
+   "tag": "other",
+   "what": "character standing on sea floor out of bounds"
+  },
+  "c22b5792-18e4-4634-bbb2-41a575478480": {
+   "tag": "unclear",
+   "what": "church and village, no clear glitch"
+  },
+  "c2ddec1f-f67e-470d-a795-dcb201eb64cd": {
+   "tag": "other",
+   "what": "NPC sitting on air; magenta car likely paint"
+  },
+  "c2e4dada-c347-4e9a-91a0-5afdc229d13b": {
+   "tag": "unclear",
+   "what": "character in village, nothing clear"
+  },
+  "c337cc22-7557-462a-b565-d9755e5a7681": {
+   "tag": "unclear",
+   "what": "soldier in field"
+  },
+  "c473941d-17ef-4ae8-b05e-c144edc1bd52": {
+   "tag": "other",
+   "what": "character in contorted pose on toppled billboard with bike"
+  },
+  "c77ba09d-72c6-41e5-9741-89b7f08d4742": {
+   "tag": "unclear",
+   "what": "blowtorch by vent, nothing clear"
+  },
+  "c8342213-a97d-4440-98ba-a6ff599dcc8a": {
+   "tag": "other",
+   "what": "structure floating"
+  },
+  "c854bef2-cc9a-4d25-b732-97597c74c842": {
+   "tag": "unclear",
+   "what": "rooftop scene, nothing clear"
+  },
+  "c8652559-ce20-436c-9744-97c7dbd22b8a": {
+   "tag": "unclear",
+   "what": "dark cave scene"
+  },
+  "c951c7d2-175c-45ed-af5d-afc7e530cb35": {
+   "tag": "other",
+   "what": "NPC in T-pose"
+  },
+  "c9d62232-50fe-4399-9d64-cf5d7b7b0004": {
+   "tag": "unclear",
+   "what": "soldiers lined by tanks"
+  },
+  "ca56c7fa-6271-4369-87bd-4154aefe9f0f": {
+   "tag": "other",
+   "what": "character stuck in wall"
+  },
+  "cc49e904-0cd4-406f-b37c-602ba4e5871d": {
+   "tag": "unclear",
+   "what": "office scene, nothing clearly wrong"
+  },
+  "cc823d6a-c60c-4db2-acfb-6d8f45fc7ecb": {
+   "tag": "other",
+   "what": "contorted characters"
+  },
+  "cc9108e0-96e0-4eca-8bff-50cc051d3b1b": {
+   "tag": "other",
+   "what": "car floating in air"
+  },
+  "cdbf2c12-8491-46c0-a65d-a727e83097a5": {
+   "tag": "rendering",
+   "what": "stretched textured polygons jutting from dam and floating in sky"
+  },
+  "ceec2acb-4f69-4e22-a875-1065a8ce3b80": {
+   "tag": "other",
+   "what": "gun mount floating"
+  },
+  "d07f0946-da14-4dfa-b66c-97475055a927": {
+   "tag": "unclear",
+   "what": "server room, nothing clear"
+  },
+  "d09cf404-eff3-4814-bc9b-4b2e6abdf9c7": {
+   "tag": "other",
+   "what": "garbage truck standing on its end"
+  },
+  "d12f75d6-10d4-451f-9c77-22c7988ee483": {
+   "tag": "other",
+   "what": "NPC sitting on air"
+  },
+  "d143f058-c717-4fc1-81d1-7eddf1d5b0ce": {
+   "tag": "unclear",
+   "what": "bar interior, no clear glitch"
+  },
+  "d2d16ab4-f64e-48e7-9a72-217de2c8177d": {
+   "tag": "unclear",
+   "what": "alley, nothing clear"
+  },
+  "d3bbca62-4c73-4b14-abdf-245753f40def": {
+   "tag": "other",
+   "what": "player in T-pose"
+  },
+  "d3bf06e4-dae9-4fda-a051-9b6c387673ca": {
+   "tag": "unclear",
+   "what": "night driving, nothing clear"
+  },
+  "d4beeadf-cbe2-408b-abea-e9f4053edff7": {
+   "tag": "unclear",
+   "what": "NPC in room, nothing clear"
+  },
+  "d52468d6-8ecd-4440-9c6b-a87b42f8668b": {
+   "tag": "other",
+   "what": "character clipping through wall"
+  },
+  "d54b5fa0-ae13-40bc-b9af-676b4b787718": {
+   "tag": "other",
+   "what": "body in contorted pose"
+  },
+  "d5573686-fda0-4cf9-91f1-f4c3d83c5420": {
+   "tag": "other",
+   "what": "seated character clipping into brick pillar"
+  },
+  "d57010c6-9b07-4d2a-bb10-5a0a015ff1be": {
+   "tag": "unclear",
+   "what": "dark scene, nothing clear"
+  },
+  "d5c2d007-2e68-4573-a87c-b9f31e8af208": {
+   "tag": "other",
+   "what": "camera clipped into wall/body"
+  },
+  "d5e9fbd1-c2ca-4f8c-bbbf-5007b7da7b34": {
+   "tag": "rendering",
+   "what": "huge burst of long spiky stretched shards over park"
+  },
+  "d68d9fac-0099-4938-9afe-44a4c6162a6e": {
+   "tag": "other",
+   "what": "two characters' heads clipping into each other"
+  },
+  "d69e4bc3-f251-4eeb-ad67-003001e3d809": {
+   "tag": "other",
+   "what": "NPC sitting on air"
+  },
+  "d80ad704-1145-4bf5-b177-2f552ee9ea94": {
+   "tag": "unclear",
+   "what": "soldiers in grass"
+  },
+  "d8b68ef2-963d-4404-92dd-0ac53ff269cf": {
+   "tag": "unclear",
+   "what": "soldiers at banquet table"
+  },
+  "d8bd2bb5-8e9a-4be0-b18e-b687ef7fd86e": {
+   "tag": "other",
+   "what": "vehicle flying through the air"
+  },
+  "d8fe2f2c-51dd-4fb5-a359-ce675d9dba77": {
+   "tag": "unclear",
+   "what": "riders posed on brooms that are mostly missing"
+  },
+  "d9326a0b-27ed-4871-b89a-ff28187fd36a": {
+   "tag": "unclear",
+   "what": "armoured soldiers in dark corridor"
+  },
+  "d9c1592c-4b8e-44ff-a4c4-6ef95ea666f4": {
+   "tag": "rendering",
+   "what": "face drawn black, only eyes and teeth visible"
+  },
+  "daac6df7-9684-4638-a987-221bbc20c9f0": {
+   "tag": "unclear",
+   "what": "FPS view, nothing clear"
+  },
+  "db4149f4-2871-4ba7-bbdc-cdcac3c6eebf": {
+   "tag": "unclear",
+   "what": "tractor on road, nothing clear"
+  },
+  "db62b037-ea58-4863-a28e-79bc07e4fb88": {
+   "tag": "unclear",
+   "what": "character carrying a box"
+  },
+  "dbb1931f-03e6-455f-a211-5d53a26861de": {
+   "tag": "other",
+   "what": "truck stacked on car"
+  },
+  "dc83a83f-0302-48c7-8d77-9d5d56fed915": {
+   "tag": "unclear",
+   "what": "factory first-person, no clear glitch"
+  },
+  "dcc10ead-fdfa-4ad6-b9aa-194947c69957": {
+   "tag": "other",
+   "what": "contorted figure in dark"
+  },
+  "de0020de-5999-43b8-a312-385027c4d4fa": {
+   "tag": "unclear",
+   "what": "bus on road from above"
+  },
+  "de45c4f3-ff65-4e73-8c6b-bd5a088f63f9": {
+   "tag": "rendering",
+   "what": "character model missing its head"
+  },
+  "dee48cb5-3876-47f7-ac0f-174d8e192975": {
+   "tag": "other",
+   "what": "character standing in default arms-out pose"
+  },
+  "dfa9eb2c-cbaf-4e4f-8e8e-c47a314a5649": {
+   "tag": "unclear",
+   "what": "characters on platform"
+  },
+  "dfba9b68-3a7e-4d71-8fa2-e73138a0171f": {
+   "tag": "other",
+   "what": "car stuck in wreck"
+  },
+  "e07edc9c-5119-4e95-af5e-189c9ccca864": {
+   "tag": "unclear",
+   "what": "whole scene tinted red, possibly intended"
+  },
+  "e1f396fe-278e-4a40-a49f-e98bc97ea5fc": {
+   "tag": "other",
+   "what": "character sitting on barrel in air"
+  },
+  "e2ef9d2e-aaf3-4c5c-a46c-4412ac012257": {
+   "tag": "unclear",
+   "what": "server room, nothing clear"
+  },
+  "e3700d6c-0b3c-4e54-9682-20d9d93ddd1f": {
+   "tag": "other",
+   "what": "characters clipping"
+  },
+  "e49aad98-200b-4a4f-b2b7-8ed87c3f0d49": {
+   "tag": "other",
+   "what": "character on balcony railing"
+  },
+  "e4cc6ef7-e38f-44b7-83f9-02851d5bca3c": {
+   "tag": "unclear",
+   "what": "dark balcony"
+  },
+  "e6acb8c5-ee99-4942-aacc-e8d821543db9": {
+   "tag": "unclear",
+   "what": "character standing by wall"
+  },
+  "e7a4bdf3-a4a3-4fa4-ae87-151bd564e609": {
+   "tag": "unclear",
+   "what": "rider and bike lying on rocks"
+  },
+  "e7f1de4b-2ec9-4cd6-ba10-3d9766dfed28": {
+   "tag": "unclear",
+   "what": "car at intersection"
+  },
+  "e9e347c1-e11f-4a9b-bace-de46f26a5492": {
+   "tag": "other",
+   "what": "guard clipping into door"
+  },
+  "ea08402f-4935-43a9-b314-012dea4594a7": {
+   "tag": "unclear",
+   "what": "soldiers inside helicopter"
+  },
+  "ea233713-6d2b-49b5-9409-7e4c3e0f7e0f": {
+   "tag": "unclear",
+   "what": "dark scene with bodies"
+  },
+  "ebb7794c-ab8e-4ab9-a716-50bffa9b734f": {
+   "tag": "unclear",
+   "what": "enemies in room, no clear glitch"
+  },
+  "ebff913c-f614-4efd-8796-11252ef186b1": {
+   "tag": "unclear",
+   "what": "soldier crouched near APC"
+  },
+  "ec591355-7a45-499a-abef-e5998b278c73": {
+   "tag": "unclear",
+   "what": "stairs on industrial map"
+  },
+  "ed38f074-283e-428d-bd2f-fb1aaf45c328": {
+   "tag": "other",
+   "what": "empty hands in odd pose"
+  },
+  "edbe102d-237c-4455-af63-46329d9f4cec": {
+   "tag": "unclear",
+   "what": "enemy crouched in room"
+  },
+  "ee042668-0ddf-44fc-b7ff-bedcb2b437e9": {
+   "tag": "unclear",
+   "what": "horse, nothing clear"
+  },
+  "eeead6bb-730e-4502-9f32-b718780cafec": {
+   "tag": "rendering",
+   "what": "suit parts untextured flat beige"
+  },
+  "eeebf7b1-3db4-402e-bc33-38893b3a967e": {
+   "tag": "other",
+   "what": "Batman clipping into wall"
+  },
+  "ef0b361e-bf1d-4151-965a-ab98e901a8d7": {
+   "tag": "unclear",
+   "what": "hangar with helicopter"
+  },
+  "ef129555-8160-4f55-a968-ee45b401b07d": {
+   "tag": "other",
+   "what": "character clipping into counter"
+  },
+  "f02a97d0-e10d-46de-899e-bdf910212e98": {
+   "tag": "unclear",
+   "what": "first-person shooting, nothing clearly wrong"
+  },
+  "f0aa11fc-5cd9-4c6c-a71c-22938c012b47": {
+   "tag": "other",
+   "what": "black cabinet floating over glass partition"
+  },
+  "f1ea5268-5335-481b-81fe-5d23ec5072e5": {
+   "tag": "unclear",
+   "what": "cliff view, nothing clear"
+  },
+  "f221d66b-69c6-42d3-86de-efbfef0f0a50": {
+   "tag": "unclear",
+   "what": "green-lit soldier, nothing clear"
+  },
+  "f45b5410-edbe-4649-91cf-d4311bdc7c06": {
+   "tag": "rendering",
+   "what": "head missing, floating eyes and teeth in helmet"
+  },
+  "f4c694c9-7777-447f-99c3-e623a42dd729": {
+   "tag": "unclear",
+   "what": "death screen, dark room"
+  },
+  "f53b7de3-84ee-4d88-9ed1-d4cec1d0e195": {
+   "tag": "other",
+   "what": "contorted character pose"
+  },
+  "f6361489-3877-4a21-90e9-5ab879742df7": {
+   "tag": "unclear",
+   "what": "black blobs on apple, can't tell"
+  },
+  "f6ccc730-e213-4c4c-8ef6-ee33f63b1681": {
+   "tag": "unclear",
+   "what": "wooden crate"
+  },
+  "f6f4ccdc-bc05-4a8b-b7fa-6747a20b7ad4": {
+   "tag": "unclear",
+   "what": "driver in truck cab"
+  },
+  "f708e70f-1ce5-4991-b6ce-4abc428d72d3": {
+   "tag": "unclear",
+   "what": "truck by road, nothing clear"
+  },
+  "f79ab12c-0511-4ede-9b3e-115ee06e1410": {
+   "tag": "rendering",
+   "what": "building front wall missing, interior visible"
+  },
+  "f7af7e75-6157-4735-b59a-53cb9f4b648e": {
+   "tag": "other",
+   "what": "character head bent unnaturally"
+  },
+  "f957c611-d6a4-461c-b63a-499c1b0ef53d": {
+   "tag": "unclear",
+   "what": "dark corridor, nothing clear"
+  },
+  "fafdf17f-4518-4698-94d7-9623a95fec15": {
+   "tag": "unclear",
+   "what": "village path, nothing clear"
+  },
+  "fc696717-c59f-43c7-bd5d-a9bb9edff964": {
+   "tag": "unclear",
+   "what": "hanging carcass, unclear"
+  },
+  "fd25ebc9-375b-4bab-a2ad-5fef06ef9d26": {
+   "tag": "unclear",
+   "what": "police car at night"
+  },
+  "fdbfaed3-6e59-4bcf-87dd-2902484c02d5": {
+   "tag": "other",
+   "what": "characters clipping into pool table"
+  },
+  "fdcfeeb8-16aa-43e9-b9fd-b4d0c8f3255e": {
+   "tag": "unclear",
+   "what": "character in jungle"
+  },
+  "ff835f1e-06ea-4251-ad7b-1c454ce9c490": {
+   "tag": "other",
+   "what": "player sitting oddly on crate"
+  },
+  "ffd2d8ec-d33a-4262-8244-604f8a86c18c": {
+   "tag": "other",
+   "what": "character in odd revive pose"
+  }
+ }
+}
