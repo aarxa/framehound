@@ -1,5 +1,5 @@
 // Each glitch breaks the scene in one way that real renderers break, and returns a short note on what it did.
-// It gets the built world ({ scene, camera, objects, floor, sun }) and its own seeded random function.
+// It gets the built world ({ scene, camera, objects, floor, sun }; floor can be null) and its own seeded random function.
 // `objects` are individual meshes, often parts of a bigger model. Their geometry may be shared with a cache,
 // so a glitch that edits geometry clones it first; materials are per-scene copies and safe to edit.
 import * as THREE from 'three';
@@ -35,7 +35,7 @@ function checkerTexture(a, b, cells = 8, size = 128) {
 
 // A texture failed to load and the engine shows its fallback: magenta/black checker, flat magenta, or black.
 function missingTexture({ objects, floor }, r) {
-  const target = r() < 0.1 ? floor : pick(r, objects);
+  const target = floor && r() < 0.1 ? floor : pick(r, objects);
   const style = pick(r, ['magenta-checker', 'magenta', 'black']);
   for (const mat of materialsOf(target)) {
     mat.color?.set(0xffffff);
@@ -67,14 +67,14 @@ function explodedVertices({ objects }, r) {
 // Two surfaces share (almost) the same depth and flicker through each other in stripes.
 function zFighting({ scene, objects, floor }, r) {
   const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(r(), 0.7, 0.5), roughness: 0.6 });
-  if (r() < 0.4) {
+  if (floor && r() < 0.4) {
     // a decal or second floor placed exactly on the floor
     const size = range(r, 3, 12);
     const patch = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
     // A hair of tilt makes the depth difference cross zero, so neither surface wins everywhere. Offsets and tilt
     // must stay below the depth buffer's precision (~1e-4 units at these distances) or one surface simply wins.
     patch.rotation.set(-Math.PI / 2 + range(r, -1e-5, 1e-5), range(r, -1e-5, 1e-5), r() * Math.PI);
-    patch.position.set(range(r, -2, 2), range(r, -0.00001, 0.00001), range(r, -2, 2));
+    patch.position.set(range(r, -2, 2), floor.position.y + range(r, -0.00001, 0.00001), range(r, -2, 2));
     patch.receiveShadow = true;
     scene.add(patch);
     return { target: floor.name, with: 'floor patch' };

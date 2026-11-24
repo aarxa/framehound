@@ -107,3 +107,76 @@ export function drawHud(g, w, h, r) {
   }
   g.restore();
 }
+
+// Draws an engine or editor debug overlay: a title line, a frame-time box and a settings panel with sliders,
+// each present or not at random. Like the HUD, it is identical on the clean and glitched frames.
+export function drawDebugOverlay(g, w, h, r) {
+  const s = h / 432;
+  const font = pick(r, ['monospace', 'system-ui', 'Helvetica', 'Arial']);
+  const accent = pick(r, ['#2cc9ff', '#4cc9f0', '#80ed99', '#ffd166', '#ff9f1c', '#c77dff']);
+  g.save();
+  if (r() < 0.8) {
+    // a title or instructions, top centre
+    g.font = `${Math.round(range(r, 10, 14) * s)}px ${font}`;
+    g.textAlign = 'center';
+    g.fillStyle = pick(r, ['#ffffff', '#cccccc', '#222222', '#88ccff']);
+    for (let i = 0, n = 1 + Math.floor(r() * 2); i < n; i++) g.fillText(phrase(r), w / 2, (16 + i * 15) * s);
+  }
+  if (r() < 0.45) {
+    // frame-time box with a little bar graph, top left
+    const bw = 80 * s, bh = 48 * s;
+    const [bgc, fg] = pick(r, [['#002', '#0ff'], ['#020', '#0f0'], ['#201', '#f08'], ['#111', '#fff']]);
+    g.globalAlpha = 0.9;
+    g.fillStyle = bgc;
+    g.fillRect(0, 0, bw, bh);
+    g.fillStyle = fg;
+    g.font = `bold ${Math.round(9 * s)}px Helvetica`;
+    g.textAlign = 'left';
+    g.fillText(`${Math.round(range(r, 24, 144))} ${pick(r, ['FPS', 'MS', 'MB'])}`, 3 * s, 10 * s);
+    g.globalAlpha = 0.6;
+    for (let x = 3 * s; x < bw - 3 * s; x += s) g.fillRect(x, bh - 3 * s - range(r, 4, 30) * s, s, range(r, 4, 30) * s);
+    g.globalAlpha = 1;
+  }
+  if (r() < 0.5) {
+    // a settings panel with labels, sliders, checkboxes and colour swatches, top right
+    const pw = range(r, 170, 250) * s, rh = 22 * s, rows = 2 + Math.floor(r() * 8);
+    const x = w - pw - range(r, 0, 16) * s;
+    g.globalAlpha = range(r, 0.85, 1);
+    g.fillStyle = pick(r, ['#1f1f1f', '#2a2a2e', '#f2f2f2']);
+    const light = g.fillStyle === '#f2f2f2';
+    g.fillRect(x, 0, pw, rows * rh + 6 * s);
+    g.font = `${Math.round(10.5 * s)}px ${font}`;
+    g.textAlign = 'left';
+    for (let i = 0; i < rows; i++) {
+      const y = 3 * s + i * rh;
+      g.fillStyle = light ? '#333' : '#ebebeb';
+      g.fillText(word(r), x + 6 * s, y + rh * 0.65);
+      const vx = x + pw * 0.42, vw = pw * 0.55 - 6 * s;
+      const kind = pick(r, ['slider', 'slider', 'check', 'color', 'value']);
+      if (kind === 'slider') {
+        g.fillStyle = light ? '#ccc' : '#424242';
+        g.fillRect(vx, y + 4 * s, vw * 0.7, rh - 8 * s);
+        g.fillStyle = accent;
+        g.fillRect(vx, y + 4 * s, vw * 0.7 * r(), rh - 8 * s);
+        g.fillStyle = light ? '#333' : '#ebebeb';
+        g.fillText(range(r, 0, 10).toFixed(2), vx + vw * 0.74, y + rh * 0.65);
+      } else if (kind === 'check') {
+        g.strokeStyle = light ? '#666' : '#aaa';
+        g.strokeRect(vx, y + 5 * s, rh - 10 * s, rh - 10 * s);
+        if (r() < 0.6) {
+          g.fillStyle = accent;
+          g.fillRect(vx + 2 * s, y + 7 * s, rh - 14 * s, rh - 14 * s);
+        }
+      } else if (kind === 'color') {
+        g.fillStyle = `hsl(${Math.floor(r() * 360)},${Math.floor(range(r, 30, 90))}%,${Math.floor(range(r, 30, 70))}%)`;
+        g.fillRect(vx, y + 4 * s, vw, rh - 8 * s);
+      } else {
+        g.fillStyle = light ? '#ddd' : '#333';
+        g.fillRect(vx, y + 4 * s, vw, rh - 8 * s);
+        g.fillStyle = light ? '#333' : '#ebebeb';
+        g.fillText(word(r), vx + 4 * s, y + rh * 0.65);
+      }
+    }
+  }
+  g.restore();
+}

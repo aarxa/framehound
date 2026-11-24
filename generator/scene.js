@@ -9,7 +9,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { drawHud } from './hud.js';
+import { drawHud, drawDebugOverlay } from './hud.js';
 import { GLITCHES } from './glitches.js';
 
 export function rng(seed) {
@@ -116,13 +116,24 @@ function instance(model) {
 // earthy, desaturated colours: what most game environments look like, unlike the bright test-scene palette
 const mutedColor = (r) => new THREE.Color().setHSL(r(), range(r, 0.04, 0.35), range(r, 0.12, 0.55));
 
+// bright, saturated colours, as in tech demos and stylised games. Pure magenta is left out: engines reserve it for
+// "texture missing", which is one of the glitches.
+function vividColor(r) {
+  for (;;) {
+    const h = r();
+    const c = new THREE.Color().setHSL(h, range(r, 0.55, 1), range(r, 0.35, 0.65));
+    if (Math.abs(h - 5 / 6) > 0.04) return c;
+  }
+}
+const darkColor = (r) => new THREE.Color().setHSL(r(), range(r, 0, 0.2), range(r, 0.01, 0.05));
+
 function canvasTexture(r, size = 256, color = randomColor) {
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const g = c.getContext('2d');
   const a = color(r).getStyle();
   const b = color(r).getStyle();
-  const kind = pick(r, ['checker', 'stripes', 'bricks', 'dots', 'noise']);
+  const kind = pick(r, ['checker', 'stripes', 'bricks', 'dots', 'noise', 'grid']);
   g.fillStyle = a;
   g.fillRect(0, 0, size, size);
   g.fillStyle = b;
@@ -144,6 +155,13 @@ function canvasTexture(r, size = 256, color = randomColor) {
       g.beginPath();
       g.arc((x + 0.5) * s, (y + 0.5) * s, s * 0.3, 0, Math.PI * 2);
       g.fill();
+    }
+  } else if (kind === 'grid') {
+    g.strokeStyle = b;
+    g.lineWidth = Math.max(1, size / 128);
+    for (let i = 0; i <= n; i++) {
+      g.beginPath(); g.moveTo(i * s, 0); g.lineTo(i * s, size); g.stroke();
+      g.beginPath(); g.moveTo(0, i * s); g.lineTo(size, i * s); g.stroke();
     }
   } else {
     const img = g.getImageData(0, 0, size, size);
@@ -172,12 +190,13 @@ const SHAPES = [
 ];
 
 function primitive(r) {
+  const dark = r() < 0.1; // black plastic, rubber, paint: dark on purpose, unlike the black-object glitch
   const mat = new THREE.MeshStandardMaterial({
-    color: r() < 0.5 ? 0xffffff : randomColor(r),
+    color: dark ? darkColor(r) : r() < 0.5 ? 0xffffff : randomColor(r),
     roughness: range(r, 0.1, 1),
     metalness: r() < 0.25 ? range(r, 0.5, 1) : 0,
   });
-  if (r() < 0.65) {
+  if (!dark && r() < 0.65) {
     mat.map = canvasTexture(r);
     mat.map.repeat.set(1 + Math.floor(r() * 3), 1 + Math.floor(r() * 3));
   }
@@ -203,12 +222,16 @@ function place(obj, r, x, z) {
   if (r() < 0.12 && obj.isMesh) obj.position.y += range(r, 0.2, 1.2); // the odd floating primitive
 }
 
-// Three quarters of scenes look like a game (an environment seen from eye level, post-processing, often a HUD);
-// the rest are the original "props on a floor" scenes.
+// Half the scenes look like a game (an environment seen from eye level, post-processing, often a HUD); 30% look like
+// a tech demo or a stylised game (black or flat backgrounds, bright unlit colours, lines and points); the rest are the
+// original "props on a floor" scenes. Each look shows up in clean frames, so a look alone never means "glitch".
 export async function buildScene(seed, width, height) {
   const r = rng(seed);
   const assets = await loadManifest();
-  return r() < 0.75 ? buildGameScene(r, width, height, assets) : buildPropsScene(r, width, height, assets);
+  const k = r();
+  if (k < 0.5) return buildGameScene(r, width, height, assets);
+  if (k < 0.8) return buildShowcaseScene(r, width, height, assets);
+  return buildPropsScene(r, width, height, assets);
 }
 
 async function loadThings(r, assets, nModels, nPrims) {
@@ -247,6 +270,15 @@ function wallMaterial(r, repeatX, repeatY) {
   map.repeat.set(repeatX, repeatY);
   return new THREE.MeshStandardMaterial({ map, roughness: range(r, 0.6, 1), metalness: r() < 0.1 ? 0.5 : 0 });
 }
+
+// post-processing settings: a game's bloom and colour grade, or bloom alone with a neutral grade
+const gameGrade = (r) => ({
+  bloom: range(r, 0.05, 0.9), bloomRadius: range(r, 0.2, 0.8), bloomThreshold: range(r, 0.6, 0.95),
+  vignette: range(r, 0, 0.6), contrast: range(r, 0.9, 1.25), saturation: range(r, 0.7, 1.25),
+  tint: [1 + range(r, -0.08, 0.08), 1 + range(r, -0.08, 0.08), 1 + range(r, -0.08, 0.08)],
+  grain: r() < 0.5 ? range(r, 0.01, 0.06) : 0, aberration: r() < 0.3 ? range(r, 0.001, 0.006) : 0, noiseSeed: r() * 100,
+});
+const NEUTRAL_GRADE = { vignette: 0, contrast: 1, saturation: 1, tint: [1, 1, 1], grain: 0, aberration: 0, noiseSeed: 0 };
 
 async function buildGameScene(r, width, height, assets) {
   const scene = new THREE.Scene();
@@ -321,6 +353,18 @@ async function buildGameScene(r, width, height, assets) {
     place(obj, r, range(r, -bounds.x, bounds.x), range(r, -bounds.z, bounds.z));
     scene.add(obj);
   }
+  if (r() < 0.3) {
+    // glowing signs and lamps: saturated colour that is meant to be there
+    for (let i = 0, n = 1 + Math.floor(r() * 4); i < n; i++) {
+      const c = vividColor(r);
+      const neon = new THREE.Mesh(pick(r, SHAPES)(), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: range(r, 1, 4) }));
+      neon.scale.setScalar(range(r, 0.3, 1));
+      neon.position.set(range(r, -bounds.x, bounds.x), range(r, 0.5, 3), range(r, -bounds.z, bounds.z));
+      neon.name = `neon${i}`;
+      scene.add(neon);
+      things.push(neon);
+    }
+  }
 
   const objects = [...structures];
   for (const t of things) t.traverse((o) => o.isMesh && objects.push(o));
@@ -347,14 +391,269 @@ async function buildGameScene(r, width, height, assets) {
   const inView = objects.filter((o) => frustum.intersectsObject(o));
   const exposure = range(r, 0.8, 1.5);
 
-  const post = r() < 0.85 ? {
-    bloom: range(r, 0.05, 0.9), bloomRadius: range(r, 0.2, 0.8), bloomThreshold: range(r, 0.6, 0.95),
-    vignette: range(r, 0, 0.6), contrast: range(r, 0.9, 1.25), saturation: range(r, 0.7, 1.25),
-    tint: [1 + range(r, -0.08, 0.08), 1 + range(r, -0.08, 0.08), 1 + range(r, -0.08, 0.08)],
-    grain: r() < 0.5 ? range(r, 0.01, 0.06) : 0, aberration: r() < 0.3 ? range(r, 0.001, 0.006) : 0, noiseSeed: r() * 100,
-  } : null;
+  const post = r() < 0.85 ? gameGrade(r) : null;
   const hud = r() < 0.55 ? Math.floor(r() * 1e9) : null;
-  return { scene, camera, objects: inView.length ? inView : objects, floor, sun, post, hud, exposure, style: `game-${layout}` };
+  const exposureTarget = r() < 0.2 ? range(r, 0.08, 0.2) : undefined; // night and dark interiors
+  return { scene, camera, objects: inView.length ? inView : objects, floor, sun, post, hud, exposure, exposureTarget, style: `game-${layout}` };
+}
+
+// ---------- showcase scenes: what tech demos, editors and stylised games look like ----------
+
+function showcaseMaterial(r) {
+  const kind = pick(r, ['standard', 'standard', 'basic', 'normal', 'phong', 'toon', 'emissive', 'dark']);
+  let m;
+  if (kind === 'basic') m = new THREE.MeshBasicMaterial({ color: vividColor(r) });
+  else if (kind === 'normal') m = new THREE.MeshNormalMaterial({ flatShading: r() < 0.3 });
+  else if (kind === 'phong') m = new THREE.MeshPhongMaterial({ color: vividColor(r), shininess: range(r, 10, 120), flatShading: r() < 0.2 });
+  else if (kind === 'toon') m = new THREE.MeshToonMaterial({ color: vividColor(r) });
+  else if (kind === 'emissive') {
+    const c = vividColor(r);
+    m = new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: range(r, 0.5, 3) });
+  } else if (kind === 'dark') {
+    m = new THREE.MeshStandardMaterial({ color: darkColor(r), roughness: range(r, 0.05, 0.6), metalness: r() < 0.3 ? 0.8 : 0 });
+  } else {
+    m = new THREE.MeshStandardMaterial({ color: r() < 0.3 ? 0xffffff : vividColor(r), roughness: r(), metalness: r() < 0.3 ? r() : 0 });
+    if (r() < 0.35) {
+      m.map = canvasTexture(r, 256, vividColor);
+      m.map.repeat.set(1 + Math.floor(r() * 3), 1 + Math.floor(r() * 3));
+    }
+  }
+  if (kind !== 'emissive' && r() < 0.12) m.wireframe = true;
+  return m;
+}
+
+const SMALL_SHAPES = [
+  () => new THREE.BoxGeometry(1, 1, 1),
+  () => new THREE.SphereGeometry(0.6, 24, 12),
+  () => new THREE.IcosahedronGeometry(0.6, 0),
+  () => new THREE.OctahedronGeometry(0.6, 0),
+  () => new THREE.TetrahedronGeometry(0.7, 0),
+  () => new THREE.TorusGeometry(0.45, 0.15, 12, 32),
+];
+
+function mesh(geometry, material, name) {
+  const m = new THREE.Mesh(geometry, material);
+  m.castShadow = m.receiveShadow = true;
+  m.name = name;
+  return m;
+}
+
+// lines and points in one of a few shapes: a random walk, scattered segments, a cloud
+function linesAndPoints(r, R) {
+  const out = [];
+  const color = () => (r() < 0.5 ? vividColor(r) : new THREE.Color(pick(r, [0xffffff, 0x888888, 0x00ffff, 0xffff00])));
+  if (r() < 0.7) {
+    const n = 50 + Math.floor(r() * 400);
+    const pos = [], col = [];
+    const p = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+      if (r() < 0.5) p.set(range(r, -R, R), range(r, -R, R), range(r, -R, R));
+      else p.add(new THREE.Vector3(r() - 0.5, r() - 0.5, r() - 0.5).multiplyScalar(R * 0.3)).clampScalar(-R, R);
+      pos.push(p.x, p.y, p.z);
+      const c = color();
+      col.push(c.r, c.g, c.b);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    const Kind = r() < 0.5 ? THREE.Line : THREE.LineSegments;
+    out.push(new Kind(g, new THREE.LineBasicMaterial({ vertexColors: true })));
+  }
+  if (r() < 0.6) {
+    const n = 300 + Math.floor(r() * 5000);
+    const pos = [], col = [];
+    const single = r() < 0.4 ? color() : null;
+    for (let i = 0; i < n; i++) {
+      const v = new THREE.Vector3(r() - 0.5, r() - 0.5, r() - 0.5).normalize().multiplyScalar(R * Math.cbrt(r()));
+      pos.push(v.x, v.y, v.z);
+      const c = single ?? color();
+      col.push(c.r, c.g, c.b);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    out.push(new THREE.Points(g, new THREE.PointsMaterial({ size: range(r, 0.02, 0.15), vertexColors: true })));
+  }
+  return out;
+}
+
+async function buildShowcaseScene(r, width, height, assets) {
+  const scene = new THREE.Scene();
+  const env = assets.hdris.length ? await loadHdri(pick(r, assets.hdris)) : null;
+
+  // background: black, nearly black, a flat colour, or a (blurred) panorama
+  const bg = pick(r, env ? ['black', 'black', 'dark', 'flat', 'flat', 'panorama'] : ['black', 'black', 'dark', 'flat', 'flat']);
+  if (bg === 'black') scene.background = new THREE.Color(0x000000);
+  else if (bg === 'dark') scene.background = darkColor(r).multiplyScalar(range(r, 1, 3));
+  else if (bg === 'flat') scene.background = r() < 0.5 ? new THREE.Color().setHSL(r(), range(r, 0, 0.1), range(r, 0.55, 0.95)) : r() < 0.5 ? vividColor(r) : randomColor(r);
+  else {
+    scene.background = env;
+    scene.backgroundBlurriness = range(r, 0, 0.5);
+    scene.backgroundRotation.y = r() * Math.PI * 2;
+  }
+  if (env && r() < 0.5) {
+    scene.environment = env; // lit by a panorama the camera doesn't see
+    scene.environmentIntensity = range(r, 0.3, 1.3);
+    scene.environmentRotation.y = r() * Math.PI * 2;
+  }
+
+  // what's on show
+  const arrangement = pick(r, ['hero', 'swarm', 'row', 'abstract']);
+  const group = new THREE.Group();
+  let R;
+  if (arrangement === 'hero') {
+    // one model (or shape) filling the frame, often re-shaded like a material demo
+    let hero;
+    if (assets.models.length && r() < 0.75) {
+      const entry = pick(r, assets.models);
+      hero = instance(await loadModel(entry));
+      hero.name = entry.id;
+      if (r() < 0.35) {
+        const m = showcaseMaterial(r);
+        hero.traverse((o) => o.isMesh && (o.material = m.clone()));
+      }
+    } else {
+      hero = mesh(pick(r, SHAPES)(), showcaseMaterial(r), 'hero');
+    }
+    hero.updateMatrixWorld(true);
+    box.setFromObject(hero).getSize(size);
+    hero.scale.multiplyScalar(2 / Math.max(size.x, size.y, size.z, 1e-3));
+    hero.updateMatrixWorld(true);
+    const c = box.setFromObject(hero).getCenter(new THREE.Vector3());
+    hero.position.sub(c);
+    group.add(hero);
+    for (let i = 0, n = r() < 0.4 ? 1 + Math.floor(r() * 4) : 0; i < n; i++) {
+      const m = mesh(pick(r, SMALL_SHAPES)(), showcaseMaterial(r), `extra${i}`);
+      m.scale.setScalar(range(r, 0.1, 0.4));
+      m.position.set(range(r, -2, 2), range(r, -1, 1.5), range(r, -2, 2));
+      group.add(m);
+    }
+    R = 1.5;
+  } else if (arrangement === 'swarm') {
+    // many small shapes scattered in space
+    const S = range(r, 2.5, 7);
+    const palette = Array.from({ length: 2 + Math.floor(r() * 5) }, () => showcaseMaterial(r));
+    const shapes = Array.from({ length: 1 + Math.floor(r() * 3) }, () => pick(r, SMALL_SHAPES)());
+    for (let i = 0, n = 20 + Math.floor(r() * 120); i < n; i++) {
+      const m = mesh(pick(r, shapes), pick(r, palette).clone(), `bit${i}`);
+      m.scale.setScalar(range(r, 0.08, 0.45) * S / 4);
+      m.position.set(range(r, -S, S), range(r, -S, S) * 0.7, range(r, -S, S));
+      m.rotation.set(r() * 6.3, r() * 6.3, r() * 6.3);
+      group.add(m);
+    }
+    R = S * 1.1;
+  } else if (arrangement === 'row') {
+    // a grid of the same shape with a material property swept across it
+    const cols = 3 + Math.floor(r() * 6), rows = 1 + Math.floor(r() * 4);
+    const shape = pick(r, [...SHAPES, ...SMALL_SHAPES])();
+    const base = r() < 0.5 ? new THREE.Color(0xffffff) : vividColor(r);
+    const perItem = r() < 0.3;
+    for (let j = 0; j < rows; j++) {
+      for (let i = 0; i < cols; i++) {
+        const mat = new THREE.MeshStandardMaterial({ color: perItem ? vividColor(r) : base, roughness: i / Math.max(1, cols - 1), metalness: rows > 1 ? j / (rows - 1) : r() < 0.5 ? 0 : 1 });
+        const m = mesh(shape, mat, `item${j}_${i}`);
+        m.position.set((i - (cols - 1) / 2) * 1.4, (j - (rows - 1) / 2) * 1.4, 0);
+        group.add(m);
+      }
+    }
+    R = Math.hypot(cols, rows) * 0.75;
+  } else {
+    // lines, points and a few (often wireframe) shapes
+    R = range(r, 2, 5);
+    for (const o of linesAndPoints(r, R)) group.add(o);
+    for (let i = 0, n = 1 + Math.floor(r() * 5); i < n; i++) {
+      const mat = showcaseMaterial(r);
+      if (r() < 0.35) mat.wireframe = true;
+      const m = mesh(pick(r, SHAPES)(), mat, `shape${i}`);
+      m.scale.setScalar(range(r, 0.5, 1.8));
+      m.position.set(range(r, -R, R) * 0.6, range(r, -R, R) * 0.4, range(r, -R, R) * 0.6);
+      m.rotation.set(r() * 6.3, r() * 6.3, 0);
+      group.add(m);
+    }
+  }
+  if (arrangement !== 'abstract' && r() < 0.25) for (const o of linesAndPoints(r, R * 1.3)) group.add(o);
+  scene.add(group);
+  scene.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(group);
+
+  // under it: nothing, a plain floor, or an editor grid
+  const floorKind = pick(r, ['none', 'none', 'plane', 'grid']);
+  let floor = null;
+  const floorY = bounds.min.y - (r() < 0.7 ? 0 : range(r, 0.2, 1));
+  if (floorKind === 'plane') {
+    const color = scene.background?.isColor && r() < 0.6 ? scene.background.clone().multiplyScalar(range(r, 0.7, 1.2)) : new THREE.Color().setHSL(r(), range(r, 0, 0.15), range(r, 0.2, 0.8));
+    floor = mesh(new THREE.PlaneGeometry(R * 20, R * 20), new THREE.MeshStandardMaterial({ color, roughness: range(r, 0.3, 1) }), 'floor');
+    floor.rotation.x = -Math.PI / 2;
+    floor.castShadow = false;
+    floor.position.y = floorY;
+    scene.add(floor);
+  } else if (floorKind === 'grid') {
+    const grid = new THREE.GridHelper(R * 6, pick(r, [10, 20, 40]), pick(r, [0x444444, 0x888888, 0xffffff]), pick(r, [0x222222, 0x444444, 0x888888]));
+    grid.position.y = floorY;
+    scene.add(grid);
+  }
+  if (r() < 0.15) scene.add(new THREE.AxesHelper(R));
+
+  // light: plain studio lights, very dim, or coloured point lights
+  const lighting = pick(r, ['studio', 'studio', 'dim', 'colored']);
+  scene.add(new THREE.AmbientLight(0xffffff, lighting === 'dim' ? range(r, 0, 0.15) : range(r, 0.1, 0.8)));
+  if (lighting === 'colored') {
+    for (let i = 0, n = 1 + Math.floor(r() * 3); i < n; i++) {
+      const p = new THREE.PointLight(vividColor(r), range(r, 5, 40) * R, 0, 2);
+      p.position.set(range(r, -R, R), range(r, 0, R), range(r, -R, R));
+      scene.add(p);
+    }
+  }
+  if (r() < 0.4) {
+    const fill = new THREE.DirectionalLight(0xffffff, range(r, 0.2, 1));
+    fill.position.set(range(r, -1, 1), range(r, -0.5, 1), range(r, -1, 1));
+    scene.add(fill);
+  }
+  const sun = makeSun(r, lighting === 'dim' ? range(r, 0.2, 1) : range(r, 1, 3.5), Math.max(4, R * 1.5));
+  scene.add(sun);
+
+  // the camera frames the whole thing (or sits inside a swarm)
+  const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+  const fov = range(r, 30, 70);
+  const camera = new THREE.PerspectiveCamera(fov, width / height, 0.05, 500);
+  const dist = (sphere.radius / Math.sin(THREE.MathUtils.degToRad(fov) / 2)) * (arrangement === 'swarm' && r() < 0.3 ? range(r, 0.2, 0.5) : range(r, 0.6, 1.2));
+  const az = r() * Math.PI * 2;
+  const el = floor ? range(r, 0.05, 0.9) : range(r, -0.4, 0.9);
+  camera.position.set(
+    sphere.center.x + Math.cos(el) * Math.cos(az) * dist,
+    Math.max(floorY + 0.2, sphere.center.y + Math.sin(el) * dist),
+    sphere.center.z + Math.cos(el) * Math.sin(az) * dist,
+  );
+  camera.lookAt(sphere.center.x + range(r, -0.2, 0.2) * R, sphere.center.y + range(r, -0.2, 0.2) * R, sphere.center.z + range(r, -0.2, 0.2) * R);
+
+  const objects = [];
+  group.traverse((o) => o.isMesh && objects.push(o));
+  if (floor) objects.push(floor);
+  camera.updateMatrixWorld();
+  const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+  const inView = objects.filter((o) => frustum.intersectsObject(o));
+
+  // demos often skip tone mapping, post-processing and auto-exposure altogether
+  const toneMapping = r() < 0.5 ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
+  const p = r();
+  const post = p < 0.4 ? null : p < 0.75
+    ? { ...NEUTRAL_GRADE, bloom: range(r, 0.3, 1.5), bloomRadius: range(r, 0.1, 0.8), bloomThreshold: range(r, 0, 0.6) }
+    : gameGrade(r);
+  if (post) {
+    // bloom must stay above the background, or a light backdrop blooms the whole frame to white
+    const bgLevel = scene.background?.isColor ? 0.2126 * scene.background.r + 0.7152 * scene.background.g + 0.0722 * scene.background.b : 0.8;
+    if (bg !== 'black' && bg !== 'dark') {
+      post.bloomThreshold = Math.max(post.bloomThreshold, Math.min(0.98, bgLevel + 0.15));
+      post.bloom = Math.min(post.bloom, 0.5);
+    }
+  }
+  const o = r();
+  const hud = o < 0.1 ? Math.floor(r() * 1e9) : null;
+  const overlay = o >= 0.1 && o < 0.55 ? Math.floor(r() * 1e9) : null;
+  return {
+    scene, camera, objects: inView.length ? inView : objects, floor, sun, post, hud, overlay,
+    exposure: range(r, 0.8, 1.3), toneMapping, autoExpose: false, style: `showcase-${arrangement}`,
+  };
 }
 
 async function buildPropsScene(r, width, height, assets) {
@@ -513,7 +812,8 @@ function getRenderer(width, height) {
 }
 
 function grab(r, world, width, height) {
-  const { scene, camera, post, hud } = world;
+  const { scene, camera, post, hud, overlay } = world;
+  r.toneMapping = world.toneMapping ?? THREE.ACESFilmicToneMapping;
   r.toneMappingExposure = world.exposure ?? 1;
   if (post) {
     renderPass.scene = scene;
@@ -536,7 +836,9 @@ function grab(r, world, width, height) {
   c.height = height;
   const g = c.getContext('2d');
   g.drawImage(r.domElement, 0, 0);
-  if (hud !== null && hud !== undefined) drawHud(g, width, height, rng(hud)); // same seed, same overlay on both frames
+  // same seed, same overlay on both frames
+  if (hud !== null && hud !== undefined) drawHud(g, width, height, rng(hud));
+  if (overlay !== null && overlay !== undefined) drawDebugOverlay(g, width, height, rng(overlay));
   return c;
 }
 
@@ -592,7 +894,8 @@ function meanLuminance(canvas) {
 // Like a game's auto-exposure: nudge exposure until the frame's average brightness lands near a target,
 // so no scene comes out blown-out white or nearly black. Done before the clean frame; the glitch never sees it.
 function autoExpose(r, world, width, height, rand) {
-  const target = 0.28 + 0.2 * rand();
+  if (world.autoExpose === false) return;
+  const target = world.exposureTarget ?? 0.28 + 0.2 * rand();
   world.exposure = world.exposure ?? 1;
   for (let i = 0; i < 3; i++) {
     const mean = meanLuminance(grab(r, world, width, height));
@@ -624,6 +927,7 @@ export async function renderSample(seed, glitchName, width = 512, height = 512, 
         style: world.style,
         post: Boolean(world.post),
         hud: world.hud !== null && world.hud !== undefined,
+        overlay: world.overlay !== null && world.overlay !== undefined,
         clean: clean.toDataURL('image/png'),
         glitched: glitched.toDataURL('image/png'),
         mask: mask.toDataURL('image/png'),
@@ -631,6 +935,16 @@ export async function renderSample(seed, glitchName, width = 512, height = 512, 
     }
   }
   return { ok: false, seed, glitch: glitchName };
+}
+
+// The clean frame alone, for looking at scenes by eye.
+export async function renderClean(seed, width = 768, height = 432) {
+  const r = getRenderer(width, height);
+  const world = await buildScene(seed, width, height);
+  autoExpose(r, world, width, height, rng(seed + 17));
+  const url = grab(r, world, width, height).toDataURL('image/png');
+  disposeScene(world.scene);
+  return url;
 }
 
 window.renderSample = renderSample;
