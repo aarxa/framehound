@@ -121,6 +121,8 @@ templates aren't followed yet.
   --expect 5 -- native/build/fh_scene --frames 720 --bug texture:5
 ```
 
+![The Vulkan watch report for the scene with a fallback texture shipped on draw 5](../docs/vulkan-watch.jpg)
+
 Both runs must draw the same frames. A deterministic app does, and so does a replay of a recording (below). The
 report checks that they did.
 
