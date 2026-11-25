@@ -78,7 +78,8 @@ Then learn from it as from any capture:
 
 ```bash
 node framehound.mjs learn-native --id scene --every 5 --captures 140 -- native/build/fh_scene --frames 720
-node framehound.mjs watch-native models/scene --start 580 --every 10 --count 14 -- native/build/fh_scene --frames 720 --bug texture:5
+node framehound.mjs watch-native models/scene --start 580 --every 10 --count 14 -- \
+  native/build/fh_scene --frames 720 --bug texture:5
 ```
 
 | Setting | Meaning |
@@ -157,6 +158,12 @@ FRAMEHOUND_OUT=data/scene-replay FRAMEHOUND_START=10 FRAMEHOUND_EVERY=20 \
   gfxrecon-replay --swapchain captured scene.gfxr
 ```
 
+`--swapchain captured` matters. By default, the replay draws into its own images and copies them to the swapchain
+only when presenting, so the layer would read the previous frame back. On the test scene:
+- the recording is 820 KB for 120 frames;
+- the replay's clean frames match the live run's pixel for pixel;
+- two replays with different seeds shared 1 of 26 broken frames.
+
 Watch works on a replay the same way. Give `watch-native` the replay command instead of the app:
 
 ```bash
@@ -166,12 +173,6 @@ node framehound.mjs watch-native models/scene --start 580 --every 10 --count 14 
 
 From a 4.7 MB recording of 720 frames of the scene with `--bug texture:5`, it flagged all 14 frames and named draw 5
 first on each. Both replays drew the same frames.
-
-`--swapchain captured` matters. By default, the replay draws into its own images and copies them to the swapchain
-only when presenting, so the layer would read the previous frame back. On the test scene:
-- the recording is 820 KB for 120 frames;
-- the replay's clean frames match the live run's pixel for pixel;
-- two replays with different seeds shared 1 of 26 broken frames.
 
 ## Results so far
 
