@@ -12,11 +12,11 @@
 //
 // The apps file has one page per line: "<id> <url> [driver.mjs]" (lines starting with # are skipped). A url starting with "/" is
 // served from the --serve folder on a local server.
-import { createServer } from 'node:http';
 import { readFile, mkdir, writeFile, appendFile, rm } from 'node:fs/promises';
-import { extname, join, normalize, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
+import { serveFolder } from './serve.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const argv = process.argv.slice(2);
@@ -34,46 +34,9 @@ const APP_TIMEOUT = Number(args["app-timeout"] ?? 180); // seconds; a page that 
 const VAL_EVERY = 5; // apps whose id hashes to 0 mod 5 go to validation, so validation pages are never trained on
 const injector = join(root, 'generator/inject/glitch-gl.js');
 
-// a plain static server for pages kept on disk (only files under the served folder are reachable)
-// --fetch-missing <base url>: a file missing from the --serve folder is fetched from <base url>/<path> and kept, so a
-// page at a given version can be served without downloading the whole repository (for three.js: the folder holds one
-// subfolder per release tag, and the base is https://raw.githubusercontent.com/mrdoob/three.js).
-const fetching = new Map();
-async function fetchMissing(dir, path) {
-  const rel = path.slice(dir.length).replace(/^\/+/, '');
-  if (!fetching.has(rel)) {
-    fetching.set(rel, (async () => {
-      const res = await fetch(`${String(args['fetch-missing']).replace(/\/$/, '')}/${rel}`, { headers: { 'User-Agent': 'framehound/0.1' } });
-      if (!res.ok) return null;
-      const body = Buffer.from(await res.arrayBuffer());
-      await mkdir(join(path, '..'), { recursive: true });
-      await writeFile(path, body);
-      return body;
-    })().catch(() => null));
-  }
-  return fetching.get(rel);
-}
-
-let base = null;
-let server = null;
-if (args.serve) {
-  const dir = resolve(root, String(args.serve));
-  const types = {
-    '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.css': 'text/css',
-    '.wasm': 'application/wasm', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml',
-    '.gltf': 'model/gltf+json', '.glb': 'model/gltf-binary', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg',
-  };
-  server = createServer(async (req, res) => {
-    const path = normalize(join(dir, decodeURIComponent(new URL(req.url, 'http://x').pathname)));
-    if (!path.startsWith(dir)) return res.writeHead(403).end();
-    let body = await readFile(path).catch(() => null);
-    if (!body && args['fetch-missing']) body = await fetchMissing(dir, path);
-    if (!body) return res.writeHead(404).end();
-    res.writeHead(200, { 'content-type': types[extname(path).toLowerCase()] ?? 'application/octet-stream' }).end(body);
-  });
-  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  base = `http://127.0.0.1:${server.address().port}`;
-}
+// pages on disk are served from --serve (see serve.mjs for --fetch-missing)
+const served = args.serve ? await serveFolder(resolve(root, String(args.serve)), args['fetch-missing'] ?? null) : null;
+const base = served?.base ?? null;
 
 // one page from the command line (--url, --id, --driver), or a list of them (--apps)
 const lines = args.url
@@ -214,4 +177,4 @@ await writeFile(join(outDir, 'dataset.json'), JSON.stringify({
 }, null, 2));
 console.log(`wrote ${stats.written} samples from ${apps.length} pages to ${outDir} in ${((Date.now() - t0) / 60000).toFixed(0)} min`, JSON.stringify(stats.byType));
 await browser.close();
-server?.close();
+served?.close();

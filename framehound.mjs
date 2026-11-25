@@ -4,16 +4,21 @@
 //   node framehound.mjs learn <url> [--id name] [--driver play.mjs] [--serve folder] [--minutes 10] [--epochs 15]
 //                                   [--out models/<id>]
 //   node framehound.mjs check <model folder> <screenshot.png ...> [--out folder] [--threshold 0.8]
+//   node framehound.mjs watch <model folder> <url> [--driver play.mjs] [--serve folder] [--minutes 5] [--out folder]
 //
 // learn opens the app in headless Chrome, freezes it at moments spread over --minutes of play, breaks each frame's
 // draw calls in eleven ways (generator/inject/glitch-gl.js), and trains a detector on the result. The last fifth of the
 // moments is held out, and report.json says how well the model does on those views it never trained on, with the
 // score threshold that flags 5% of clean frames. A driver (--driver) gets a game past its menus and plays it between
 // moments; without one, the camera is dragged a little. A url starting with "/" is served from --serve.
+//
+// watch plays the app (a new build, say) the same way and checks every frame it stops on. For each frame the model
+// flags, it finds the draw calls that drew the flagged pixels and writes them into report.html with their shader,
+// textures and size (generator/watch.mjs). --plant 0.5 tests watch itself by breaking a known draw on half the frames.
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { copyFile, readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
@@ -78,10 +83,23 @@ async function check() {
     ...(opts.out ? ['--out', mine(opts.out)] : []), ...(opts.threshold ? ['--threshold', String(opts.threshold)] : [])]);
 }
 
-const commands = { learn, check };
+async function watch() {
+  const [model, url] = positional;
+  if (!model || !url) throw new Error('usage: framehound watch <model folder> <url> [--driver play.mjs] [--serve folder] [--minutes 5]');
+  const id = String(opts.id ?? basename(mine(model)));
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  const out = mine(opts.out ?? join('watch', `${id}-${stamp}`));
+  const pass = ['minutes', 'moments', 'gap', 'warmup', 'threshold', 'plant', 'types', 'seed', 'fetch-missing']
+    .flatMap((k) => (opts[k] !== undefined ? [`--${k}`, String(opts[k])] : []));
+  await run(process.execPath, ['generator/watch.mjs', '--model', mine(model), '--url', url, '--id', id, '--out', out, ...pass,
+    ...(opts.driver ? ['--driver', mine(opts.driver)] : []), ...(opts.serve ? ['--serve', mine(opts.serve)] : [])]);
+}
+
+const commands = { learn, check, watch };
 if (!commands[command]) {
   console.log('usage:\n  framehound learn <url> [--driver play.mjs] [--serve folder] [--minutes 10] [--out models/<id>]\n' +
-    '  framehound check <model folder> <screenshot.png ...> [--out folder] [--threshold t]');
+    '  framehound check <model folder> <screenshot.png ...> [--out folder] [--threshold t]\n' +
+    '  framehound watch <model folder> <url> [--driver play.mjs] [--serve folder] [--minutes 5] [--out folder]');
   process.exit(command ? 1 : 0);
 }
 commands[command]().catch((e) => {

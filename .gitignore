@@ -9,3 +9,6 @@ __pycache__/
 eval-data/
 sources/
 models/
+watch/
+native/build/
+native/layer/commands.inc

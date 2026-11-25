@@ -101,6 +101,54 @@
     };
   }
 
+  // ---- textures: size and file name, noted as the page uploads them (for naming the draws that use them) -----------
+  const texInfo = new WeakMap();
+  const TEX_UPLOADS = new Set(['texImage2D', 'texStorage2D', 'compressedTexImage2D']);
+  function sourceName(s) {
+    let u = null;
+    if (typeof HTMLImageElement !== 'undefined' && s instanceof HTMLImageElement) u = s.currentSrc || s.src;
+    else if (typeof HTMLVideoElement !== 'undefined' && s instanceof HTMLVideoElement) u = s.currentSrc || s.src;
+    else if (typeof HTMLCanvasElement !== 'undefined' && s instanceof HTMLCanvasElement) return 'a canvas';
+    if (!u) return null;
+    if (u.startsWith('data:')) return 'a data URL';
+    if (u.startsWith('blob:')) return 'a blob';
+    try {
+      // the last few folders too: "ships/feisar/diffuse.jpg" says more than "diffuse.jpg"
+      const path = new URL(u, location.href).pathname.split('/').filter(Boolean);
+      return decodeURIComponent(path.slice(-3).join('/')) || null;
+    } catch {
+      return null;
+    }
+  }
+  function noteTexture(gl, name, a) {
+    try {
+      const target = a[0];
+      const face = target >= gl.TEXTURE_CUBE_MAP_POSITIVE_X && target <= gl.TEXTURE_CUBE_MAP_NEGATIVE_Z;
+      const cube = face || target === gl.TEXTURE_CUBE_MAP;
+      if (target !== gl.TEXTURE_2D && !cube) return;
+      if (name !== 'texStorage2D' && a[1] !== 0) return; // level 0 only
+      const tex = gl.getParameter(cube ? gl.TEXTURE_BINDING_CUBE_MAP : gl.TEXTURE_BINDING_2D);
+      if (!tex) return;
+      let w;
+      let h;
+      let file = null;
+      if (name === 'texImage2D' && a.length === 6) {
+        const s = a[5];
+        w = s?.naturalWidth || s?.videoWidth || s?.width;
+        h = s?.naturalHeight || s?.videoHeight || s?.height;
+        file = sourceName(s);
+      } else {
+        w = a[3];
+        h = a[4];
+        if (name === 'texImage2D') file = sourceName(a[8]);
+      }
+      const prev = texInfo.get(tex);
+      texInfo.set(tex, { size: `${w}×${h}`, file: file ?? prev?.file ?? null, cube });
+    } catch {
+      // a texture we can't describe is still drawn
+    }
+  }
+
   // ---- what each shader program reads ---------------------------------------------------------------------------
   const programs = new WeakMap();
   let programCount = 0;
@@ -127,8 +175,10 @@
     }
     const leaf = (n) => n.replace(/\[0\]$/, '').split('.').pop();
     const samplers = uniforms.filter((u) => u.type === gl.SAMPLER_2D && u.loc && !SKIP_SAMPLER.test(leaf(u.name)));
+    const SAMPLER_TYPES = [gl.SAMPLER_2D, gl.SAMPLER_CUBE, gl.SAMPLER_2D_SHADOW].filter((t) => t !== undefined);
     info = {
       id: ++programCount,
+      allSamplers: uniforms.filter((u) => SAMPLER_TYPES.includes(u.type) && u.loc),
       position: attribs.find((a) => a.type === gl.FLOAT_VEC3 && a.loc >= 0 && (/position$/i.test(a.name) || /^a_?pos$/i.test(a.name))),
       uv: attribs.find((a) => a.type === gl.FLOAT_VEC2 && a.loc >= 0 && /(uv|texcoord|tex_coord)0?$/i.test(a.name)),
       baseSampler: samplers.find((u) => BASE_SAMPLER.test(leaf(u.name))) ?? null,
@@ -179,6 +229,17 @@
   let draws = [];
   let armed = null;
   let applied = null;
+  let skip = null; // a draw left out while locating
+  let planted = null; // { draw, type, seed }: a glitch kept on across frames, for testing watch mode
+  let inspect = null; // a draw whose state is read as it is drawn
+  let inspected = null;
+  // what happens to draw k this frame, if anything
+  function modFor(k) {
+    if (skip === k) return { type: 'missing_draw' };
+    if (armed && armed.draw === k) return armed;
+    if (planted && planted.draw === k) return { type: planted.type, rnd: mulberry(planted.seed) };
+    return null;
+  }
   const DRAWS = new Set(['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced', 'drawRangeElements']);
   const NOT_REPLAYED = /^(get|is|check)|^(readPixels|finish|flush|getExtension|getContextAttributes)$/;
 
@@ -211,13 +272,16 @@
   }
 
   function wrap(name, orig, isDraw) {
+    const upload = TEX_UPLOADS.has(name);
     return function (...args) {
+      if (upload) noteTexture(this, name, args);
       if (mode === 'off' || mode === 'replay') return orig.apply(this, args);
       if (isDraw) {
         const k = drawIndex++;
         if (mode === 'glitch') {
-          if (armed && armed.draw === k) return glitchDraw(this, name, orig, args);
-          return orig.apply(this, args);
+          if (inspect === k) inspected = inspectDraw(this, name, args);
+          const g = modFor(k);
+          return g ? glitchDraw(this, name, orig, args, g) : orig.apply(this, args);
         }
         draws.push(describeDraw(this, name, args, k));
         if (capturing) frame.push({ target: this, fn: orig, args: args.map(snap), name, draw: k });
@@ -263,9 +327,13 @@
     try {
       for (const e of frame) {
         const args = created.size ? e.args.map((a) => created.get(a) ?? a) : e.args;
-        if (e.draw !== undefined && armed && armed.draw === e.draw) {
-          glitchDraw(e.target, e.name, e.fn, args);
-          continue;
+        if (e.draw !== undefined) {
+          if (inspect === e.draw) inspected = inspectDraw(e.target, e.name, args);
+          const g = modFor(e.draw);
+          if (g) {
+            glitchDraw(e.target, e.name, e.fn, args, g);
+            continue;
+          }
         }
         const r = e.fn.apply(e.target, args);
         if (e.created) created.set(e.created, r);
@@ -613,13 +681,13 @@
     },
   };
 
-  function glitchDraw(gl, name, orig, args) {
+  function glitchDraw(gl, name, orig, args, g) {
     const draw = () => orig.apply(gl, args);
     const p = drawParams(name, args);
     const info = programInfo(gl, gl.getParameter(gl.CURRENT_PROGRAM));
     let note = null;
     try {
-      note = GLITCHES[armed.type](gl, draw, armed.rnd, info, p, { name, args, drawWith: (a) => orig.apply(gl, a) });
+      note = GLITCHES[g.type](gl, draw, g.rnd, info, p, { name, args, drawWith: (a) => orig.apply(gl, a) });
     } catch (e) {
       note = null;
       applied = { ok: false, error: String(e) };
@@ -630,6 +698,50 @@
       draw();
     }
     return undefined;
+  }
+
+  // What a draw call draws with, read just before it draws: the shader (three.js names its shaders), the textures it
+  // samples (with the file each came from, when the page uploaded an image), how many vertices, and whether it draws
+  // to the screen or to an offscreen target such as a shadow map.
+  const PRIMITIVES = ['points', 'lines', 'line loop', 'line strip', 'triangles', 'triangle strip', 'triangle fan'];
+  const shortHash = (s) => ([...s].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261) >>> 0).toString(16).padStart(8, '0');
+  function inspectDraw(gl, name, args) {
+    try {
+      const p = drawParams(name, args);
+      const prog = gl.getParameter(gl.CURRENT_PROGRAM);
+      const info = programInfo(gl, prog);
+      const out = { call: name, primitive: PRIMITIVES[p.mode] ?? String(p.mode), count: p.count, program: info?.id ?? 0 };
+      if (name === 'drawArraysInstanced') out.instances = args[3];
+      if (name === 'drawElementsInstanced') out.instances = args[4];
+      const fb = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+      const vp = gl.getParameter(gl.VIEWPORT);
+      out.target = fb ? `offscreen ${vp[2]}×${vp[3]}` : 'screen';
+      out.depth_test = gl.isEnabled(gl.DEPTH_TEST);
+      out.blend = gl.isEnabled(gl.BLEND);
+      out.cull = gl.isEnabled(gl.CULL_FACE);
+      if (prog) {
+        const src = (gl.getAttachedShaders(prog) || []).map((s) => gl.getShaderSource(s) || '').join('\n');
+        const define = (k) => src.match(new RegExp(`#define[ \\t]+${k}[ \\t]+(\\S+)`))?.[1];
+        out.shader = define('SHADER_NAME') ?? define('SHADER_TYPE') ?? null; // three.js names its shaders this way
+        out.shader_hash = shortHash(src);
+        const textures = [];
+        const prevActive = gl.getParameter(gl.ACTIVE_TEXTURE);
+        for (const u of info.allSamplers) {
+          const unit = gl.getUniform(prog, u.loc);
+          if (typeof unit !== 'number') continue;
+          gl.activeTexture(gl.TEXTURE0 + unit);
+          const tex = gl.getParameter(u.type === gl.SAMPLER_CUBE ? gl.TEXTURE_BINDING_CUBE_MAP : gl.TEXTURE_BINDING_2D);
+          if (!tex) continue;
+          const t = texInfo.get(tex);
+          textures.push({ uniform: u.name, size: t?.size ?? null, file: t?.file ?? null, cube: u.type === gl.SAMPLER_CUBE });
+        }
+        gl.activeTexture(prevActive);
+        out.textures = textures;
+      }
+      return out;
+    } catch (e) {
+      return { call: name, error: String(e) };
+    }
   }
 
   // ---- reading frames -----------------------------------------------------------------------------------------------
@@ -862,7 +974,7 @@
   // minStrong: share of the frame that must change plainly (by more than STRONG), so faint glitches are left out.
   // minPatch: pixels in the biggest connected patch of plain change. minSpread: brightness spread the broken frame
   // must keep, so a glitch that blanks the whole frame is left out.
-  function sample({ type, seed, tries = 6, minFraction = 0.002, maxFraction = 0.6, minStrong = 0.001, minPatch = 150, minSpread = 6 }) {
+  function sample({ type, seed, tries = 6, minFraction = 0.002, maxFraction = 0.6, minStrong = 0.001, minPatch = 150, minSpread = 6, keep = false }) {
     if (!clean) return { ok: false, reason: 'not settled' };
     const rnd = mulberry(seed);
     const candidates = cleanDraws.filter((d) => d.eligible.includes(type));
@@ -870,7 +982,8 @@
     const rejected = [];
     for (let t = 0; t < tries; t++) {
       const d = candidates[Math.floor(rnd() * candidates.length)];
-      armed = { draw: d.index, type, rnd: mulberry(seed * 9973 + t + 1) };
+      const glitchSeed = seed * 9973 + t + 1;
+      armed = { draw: d.index, type, rnd: mulberry(glitchSeed) };
       applied = null;
       drawBroken();
       const glitched = grab();
@@ -892,6 +1005,7 @@
         rejected.push(`patch ${patch} spread ${sp.toFixed(1)}`);
         continue;
       }
+      if (keep) planted = { draw: d.index, type, seed: glitchSeed };
       return {
         ok: true, type, attempt: t, info: result.info, fraction: m.fraction, strong: m.strong, mean_change: m.mean,
         draw: { index: d.index, call: d.name, count: d.count, program: d.program },
@@ -899,6 +1013,126 @@
       };
     }
     return { ok: false, reason: 'not visible', rejected };
+  }
+
+  // After stepping a frame with a draw left out, step until the frame as shown comes back (a replayed frame is drawn
+  // afresh every time, so it needs nothing).
+  function settleBack(ref, maxSteps = 30) {
+    if (replayable) return true;
+    for (let i = 0; i < maxSteps; i++) {
+      step('glitch');
+      if (same(ref, grab())) return true;
+    }
+    return false;
+  }
+
+  const pixels = (c) => c.getContext('2d').getImageData(0, 0, outW, outH).data;
+
+  // the frame with everything dimmed except the pixels that change between a and b
+  function spotlight(a, b, dataA) {
+    const c = document.createElement('canvas');
+    c.width = outW;
+    c.height = outH;
+    const g = c.getContext('2d');
+    const out = g.createImageData(outW, outH);
+    for (let i = 0; i < a.length; i += 4) {
+      const d = Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]));
+      const k = d > DIFF_THRESHOLD ? 1 : 0.22;
+      out.data[i] = dataA[i] * k;
+      out.data[i + 1] = dataA[i + 1] * k;
+      out.data[i + 2] = dataA[i + 2] * k;
+      out.data[i + 3] = 255;
+    }
+    g.putImageData(out, 0, 0);
+    return c.toDataURL('image/jpeg', 0.88);
+  }
+
+  // Which draw calls drew the flagged pixels: draw the frame once with each draw left out, and see which pixels change.
+  // With the model's heatmap (`heat`: a coarse grid over the frame), a draw is ranked by the share of the heat it
+  // explains times the mean heat over what it draws, so a full-screen pass or the ground behind an object ranks below
+  // the object itself. Without one, the same is done with the box (x0, y0, x1, y1 in frame pixels) as the heat.
+  function locate({ box, heat = null, pad = 6, top = 3 }) {
+    if (!clean) return { ok: false, reason: 'not settled' };
+    const t0 = realNow();
+    drawBroken();
+    const ref = grab();
+    const refPix = pixels(ref);
+    const x0 = Math.max(0, Math.floor(box[0] - pad));
+    const y0 = Math.max(0, Math.floor(box[1] - pad));
+    const x1 = Math.min(outW, Math.ceil(box[2] + pad));
+    const y1 = Math.min(outH, Math.ceil(box[3] + pad));
+    const area = Math.max(1, (x1 - x0) * (y1 - y0));
+    // heat of each pixel, looked up on the grid
+    const cellW = heat ? outW / heat.cols : 1;
+    const cellH = heat ? outH / heat.rows : 1;
+    const heatAt = (x, y) => heat.values[Math.min(heat.rows - 1, (y / cellH) | 0) * heat.cols + Math.min(heat.cols - 1, (x / cellW) | 0)];
+    const heatTotal = heat ? heat.values.reduce((s, v) => s + v, 0) * cellW * cellH : 0;
+    const found = [];
+    for (const d of cleanDraws) {
+      skip = d.index;
+      try {
+        drawBroken();
+      } finally {
+        skip = null;
+      }
+      const px = pixels(grab());
+      let inside = 0;
+      let total = 0;
+      let warm = 0;
+      let bx0 = outW;
+      let by0 = outH;
+      let bx1 = -1;
+      let by1 = -1;
+      for (let y = 0, i = 0; y < outH; y++) {
+        for (let x = 0; x < outW; x++, i += 4) {
+          const dd = Math.max(Math.abs(px[i] - refPix[i]), Math.abs(px[i + 1] - refPix[i + 1]), Math.abs(px[i + 2] - refPix[i + 2]));
+          if (dd <= DIFF_THRESHOLD) continue;
+          total++;
+          if (heat) warm += heatAt(x, y);
+          if (x >= x0 && x < x1 && y >= y0 && y < y1) inside++;
+          if (x < bx0) bx0 = x;
+          if (x > bx1) bx1 = x;
+          if (y < by0) by0 = y;
+          if (y > by1) by1 = y;
+        }
+      }
+      if (!settleBack(ref)) return { ok: false, reason: 'the frame did not come back after leaving a draw out' };
+      if (heat ? warm > 0 : inside) {
+        const coverage = heat ? warm / heatTotal : inside / area;
+        const focus = heat ? warm / total : inside / total;
+        found.push({ index: d.index, inside, total, coverage, focus, score: coverage * focus, whole_frame: total > 0.5 * outW * outH, bbox: [bx0, by0, bx1 + 1, by1 + 1] });
+      }
+    }
+    found.sort((a, b) => b.score - a.score);
+    const tried = cleanDraws.length;
+    // the top few, described as they draw, with a picture of what each one draws
+    const draws = [];
+    for (const f of found.slice(0, top)) {
+      inspect = f.index;
+      inspected = null;
+      try {
+        drawBroken();
+      } finally {
+        inspect = null;
+      }
+      const details = inspected;
+      skip = f.index;
+      try {
+        drawBroken();
+      } finally {
+        skip = null;
+      }
+      const without = grab();
+      const image = spotlight(refPix, pixels(without), refPix);
+      if (!settleBack(ref)) return { ok: false, reason: 'the frame did not come back after leaving a draw out' };
+      draws.push({ ...f, coverage: +f.coverage.toFixed(3), focus: +f.focus.toFixed(3), score: +f.score.toFixed(4), ...details, image });
+    }
+    drawBroken();
+    const back = same(ref, grab());
+    return {
+      ok: true, box: [x0, y0, x1, y1], tried, drew_in_box: found.length, draws, back,
+      ranks: found.map((f) => f.index), seconds: +((realNow() - t0) / 1000).toFixed(1),
+    };
   }
 
   window.__fh = {
@@ -931,5 +1165,11 @@
     settle,
     clean: () => clean?.toDataURL('image/png') ?? null,
     sample,
+    locate,
+    planted: () => planted && { draw: planted.draw, type: planted.type },
+    unplant() {
+      planted = null;
+      return recover();
+    },
   };
 })();
