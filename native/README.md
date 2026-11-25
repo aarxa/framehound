@@ -155,6 +155,16 @@ FRAMEHOUND_OUT=data/scene-replay FRAMEHOUND_START=10 FRAMEHOUND_EVERY=20 \
   gfxrecon-replay --swapchain captured scene.gfxr
 ```
 
+Watch works on a replay the same way. Give `watch-native` the replay command instead of the app:
+
+```bash
+node framehound.mjs watch-native models/scene --start 580 --every 10 --count 14 -- \
+  gfxrecon-replay --wsi headless --swapchain captured scene-bug.gfxr
+```
+
+From a 4.7 MB recording of 720 frames of the scene with `--bug texture:5`, it flagged all 14 frames and named draw 5
+first on each. Both replays drew the same frames.
+
 `--swapchain captured` matters. By default, the replay draws into its own images and copies them to the swapchain
 only when presenting, so the layer would read the previous frame back. On the test scene:
 - the recording is 820 KB for 120 frames;
