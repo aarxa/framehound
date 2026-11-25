@@ -28,6 +28,7 @@ const height = 432;
 if (args.rebuild && args.out) {
   const dir = resolve(root, String(args.out));
   const r = JSON.parse(await readFile(join(dir, 'report.json'), 'utf8'));
+  r.named_most ??= namedMost(r.frames.filter((f) => f.flagged));
   await writeFile(join(dir, 'report.html'), html(r, r.frames.filter((f) => !f.skipped)));
   console.log(join(dir, 'report.html'));
   process.exit(0);
@@ -198,6 +199,7 @@ const summary = {
   frames_checked: checked.length, frames_skipped: frames.length - checked.length, flagged: flagged.length,
   threshold: checked[0]?.threshold ?? null, page_errors: pageErrors.slice(0, 5),
 };
+summary.named_most = namedMost(flagged);
 if (plantShare) {
   const caught = plantedFrames.filter((f) => f.flagged);
   const located = caught.filter((f) => f.located?.draws);
@@ -217,6 +219,23 @@ await writeFile(join(outDir, 'report.html'), html(summary, checked));
 console.log(`\n${checked.length} frames checked, ${flagged.length} flagged. Report: ${join(outDir, 'report.html')}`);
 if (summary.test) console.log(JSON.stringify(summary.test));
 process.exit(0); // the work is done; don't wait on handles Chrome or the checker may leave open
+
+// The draws named first most often: a broken asset or shader shows up in many frames. Draw numbers change from frame
+// to frame, so draws are matched by what they draw with: shader, size and textures.
+function namedMost(flaggedFrames) {
+  const signature = (d) => [d.shader ?? `program ${d.program}`, d.count, ...(d.textures ?? []).map((x) => x.file ?? x.size)].join('|');
+  const often = new Map();
+  for (const f of flaggedFrames) {
+    const d = f.located?.draws?.[0];
+    if (!d) continue;
+    const k = signature(d);
+    if (!often.has(k)) often.set(k, { draw: d, frames: [] });
+    often.get(k).frames.push(f.moment);
+  }
+  return [...often.values()].sort((a, b) => b.frames.length - a.frames.length).slice(0, 5)
+    .map(({ draw, frames }) => ({ frames, call: draw.call, count: draw.count, primitive: draw.primitive, shader: draw.shader, program: draw.program,
+      textures: draw.textures, target: draw.target }));
+}
 
 function html(s, list) {
   const esc = (x) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -249,6 +268,12 @@ function html(s, list) {
   }).join('\n');
   const strip = list.map((f) => `<a class="thumb${f.flagged ? ' hit' : ''}" href="${esc(f.frame)}"><img src="${esc(f.frame)}" alt=""><span>${f.moment} · ${f.score}</span></a>`).join('');
   const t = s.test;
+  const most = (s.named_most ?? []).filter((m) => m.frames.length > 1);
+  const mostTable = most.length ? `<section><h2>Named first most often</h2>
+    <p class="dim">Draws are matched across frames by shader, size and textures. A broken asset or shader usually shows up here.</p>
+    <table><tr><th>Frames</th><th>Draw</th><th>Textures</th></tr>${most.map((m) => `<tr><td>${m.frames.length} (${m.frames.slice(0, 8).join(', ')}${m.frames.length > 8 ? ', …' : ''})</td>
+      <td>${m.shader ? `<code>${esc(m.shader)}</code>` : `program ${m.program}`}, ${tris(m)}, to the ${m.target === 'screen' ? 'screen' : esc(m.target)}</td>
+      <td>${(m.textures ?? []).map((x) => `${x.file ? esc(x.file) : 'unnamed'}${x.size ? ` (${esc(x.size)})` : ''}`).join(', ') || 'none'}</td></tr>`).join('')}</table></section>` : '';
   const testLine = t ? `<p>Test run: ${t.planted} frames had a glitch planted, and ${t.planted_flagged} of them were flagged. The broken draw came first in ${t.planted_draw_first} of those and in the top three in ${t.planted_draw_in_top3}. ${t.unplanted_flagged} of ${t.unplanted} frames without a planted glitch were flagged.</p>` : '';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>framehound watch: ${esc(s.id)}</title>
@@ -267,12 +292,15 @@ section { border-top: 1px solid var(--line); padding: 20px 0; }
 .strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; margin-top: 12px; }
 .thumb { color: var(--dim); text-decoration: none; font-size: 12px; } .thumb img { width: 100%; display: block; opacity: .75; }
 .thumb.hit img { outline: 2px solid var(--hit); opacity: 1; } .thumb.hit { color: var(--hit); }
+table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 14px; } th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--dim); font-weight: 500; }
 @media (max-width: 640px) { .pair, .draw { grid-template-columns: 1fr; } }
 </style></head><body>
 <h1>framehound watch: ${esc(s.id)}</h1>
 <p class="dim">${esc(s.url)}</p>
 <p>Played for ${s.played_minutes} min and checked ${s.frames_checked} frames${s.frames_skipped ? ` (${s.frames_skipped} more wouldn't hold still)` : ''}. The model flagged ${s.flagged}.</p>
 ${testLine}
+${mostTable}
 <p class="dim">For each flagged frame, the draws listed are the ones that drew the flagged pixels, best match first, each with a picture of what it draws. A draw that never happened can't be listed: if the area looks empty, what's missing is something that should have been drawn there.</p>
 ${sections || '<section><p>No frame was flagged.</p></section>'}
 <section><h2>Every frame checked</h2><p class="dim">Frame number and score; flagged frames are outlined.</p><div class="strip">${strip}</div></section>

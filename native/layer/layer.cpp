@@ -27,8 +27,6 @@
 #include <vulkan/vulkan.h>
 #include <zlib.h>
 
-#include <sys/stat.h>
-
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -36,6 +34,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdarg>
+#include <filesystem>
 #include <functional>
 #include <mutex>
 #include <random>
@@ -43,7 +42,10 @@
 #include <unordered_map>
 #include <vector>
 
-#ifndef VK_LAYER_EXPORT
+#undef VK_LAYER_EXPORT
+#if defined(_WIN32)
+#define VK_LAYER_EXPORT __declspec(dllexport)
+#else
 #define VK_LAYER_EXPORT __attribute__((visibility("default")))
 #endif
 
@@ -245,7 +247,6 @@ Recording* RecordingOf(VkCommandBuffer cb) {
   return r;
 }
 
-void Log(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 void Log(const char* fmt, ...) {
   va_list a;
   va_start(a, fmt);
@@ -261,10 +262,8 @@ void Log(const char* fmt, ...) {
 
 // ---- files --------------------------------------------------------------------------------------------------------------
 void MakeDirs(const std::string& path) {
-  for (size_t i = 1; i < path.size(); i++) {
-    if (path[i] == '/') mkdir(path.substr(0, i).c_str(), 0755);
-  }
-  mkdir(path.c_str(), 0755);
+  std::error_code ignored;
+  std::filesystem::create_directories(path, ignored);
 }
 
 bool WritePng(const std::string& path, int w, int h, int channels, const uint8_t* pixels) {

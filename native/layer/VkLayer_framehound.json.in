@@ -3,7 +3,7 @@
   "layer": {
     "name": "VK_LAYER_FRAMEHOUND_glitch",
     "type": "GLOBAL",
-    "library_path": "./libVkLayer_framehound.dylib",
+    "library_path": "LIBRARY",
     "api_version": "1.4.0",
     "implementation_version": "1",
     "description": "framehound: draws a frame again with one draw call broken, for training a glitch detector"

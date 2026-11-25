@@ -50,6 +50,10 @@ brew install molten-vk vulkan-loader vulkan-headers vulkan-tools glslang cmake
 cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release && cmake --build native/build
 ```
 
+On Linux and Windows, the Vulkan SDK (or the distribution's Vulkan headers, loader and glslang) and zlib should be
+enough. The build writes the layer's manifest next to the library, with the library's name on that platform. It has
+only been built on a Mac so far.
+
 Run any Vulkan app with the layer on:
 
 ```bash

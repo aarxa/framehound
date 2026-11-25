@@ -20,10 +20,16 @@ add_custom_command(
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/layer/gen_commands.py ${VK_XML} ${CMAKE_CURRENT_SOURCE_DIR}/layer/commands.inc
   DEPENDS layer/gen_commands.py ${VK_XML})
 add_library(VkLayer_framehound MODULE layer/layer.cpp layer/commands.inc)
-set_target_properties(VkLayer_framehound PROPERTIES PREFIX "lib" SUFFIX ".dylib" CXX_VISIBILITY_PRESET hidden)
+set_target_properties(VkLayer_framehound PROPERTIES CXX_VISIBILITY_PRESET hidden)
+if(NOT WIN32)
+  set_target_properties(VkLayer_framehound PROPERTIES PREFIX "lib")
+endif()
 target_include_directories(VkLayer_framehound PRIVATE ${Vulkan_INCLUDE_DIRS})
 target_link_libraries(VkLayer_framehound PRIVATE ZLIB::ZLIB)
-configure_file(layer/VkLayer_framehound.json.in ${CMAKE_CURRENT_BINARY_DIR}/VkLayer_framehound.json COPYONLY)
+# the manifest the loader reads, naming the library as this platform builds it (.dylib, .so or .dll), next to it
+file(READ layer/VkLayer_framehound.json.in MANIFEST)
+string(REPLACE "LIBRARY" "./$<TARGET_FILE_NAME:VkLayer_framehound>" MANIFEST "${MANIFEST}")
+file(GENERATE OUTPUT $<TARGET_FILE_DIR:VkLayer_framehound>/VkLayer_framehound.json CONTENT "${MANIFEST}")
 
 # the test scene
 foreach(stage vert frag)
@@ -34,5 +40,5 @@ foreach(stage vert frag)
   list(APPEND SPIRV ${CMAKE_CURRENT_BINARY_DIR}/scene.${stage}.spv)
 endforeach()
 add_executable(fh_scene testapp/scene.cpp ${SPIRV})
-target_compile_definitions(fh_scene PRIVATE SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_definitions(fh_scene PRIVATE SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}" _USE_MATH_DEFINES)
 target_link_libraries(fh_scene PRIVATE Vulkan::Vulkan)

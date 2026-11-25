@@ -87,9 +87,16 @@ Two more cases were left out:
 - [#26110](https://github.com/mrdoob/three.js/issues/26110), the SVG example: it only draws when the mouse moves,
   which the injector can't freeze yet.
 
-**Watch mode.** Watching the broken r161 release of the progressive-lightmap example, with the model learned on
-r160, every frame is flagged. The first two draws named are the ground and the object, both drawn with the broken
-lightmap shader (they sample the 1024×1024 lightmap). Finding them takes 0.2 s per frame.
+**Watch mode.** Two builds with a real kind of bug:
+- **A broken three.js release.** Watching the r161 progressive-lightmap example, with the model learned on r160,
+  every frame is flagged. The first two draws named are the ground and the object, both drawn with the broken
+  lightmap shader (they sample the 1024×1024 lightmap). Finding them takes 0.2 s per frame.
+- **A wrong asset.** In a copy of HexGL, the ship's texture file holds the track's texture instead, as if the wrong
+  file had shipped. The model learned on the right build flags 59 of 77 frames, against about 7% of frames on the
+  right build. The report's top table names the same draw first in 41 of them: 1,676 triangles sampling
+  `ships/feisar/diffuse.jpg`, the file to check.
+
+![The top of watch's report on the HexGL build with the wrong ship texture](docs/watch-report.jpg)
 
 To measure naming, watch played HexGL four times for 12 minutes and broke a known draw on about half the frames
 (`--plant 0.5`). Over the four runs, the model flagged 281 of 372 broken frames (76%) and 24 of 351 clean ones
@@ -166,8 +173,9 @@ node framehound.mjs watch models/my-webgl-app https://example.com/my-webgl-app-n
 node framehound.mjs check models/my-webgl-app shot1.png shot2.png
 ```
 
-`watch` writes `watch/<app>-<time>/report.html`. Each flagged frame shows the frame with the flagged area boxed, the
-heatmap, and the draws found there, best match first. Each draw comes with a picture of what it draws, its shader
+`watch` writes `watch/<app>-<time>/report.html`. At the top, a table lists the draws named first most often, matched
+across frames by shader, size and textures, since a broken asset or shader shows up in many frames. Each flagged frame
+shows the frame with the flagged area boxed, the heatmap, and the draws found there, best match first. Each draw comes with a picture of what it draws, its shader
 (three.js names its shaders), the textures it samples with their file names, its triangle count, and whether it
 draws to the screen or to an offscreen target such as a shadow map. `--plant 0.5` tests watch itself: it breaks a known
 draw on half the frames and reports how many were caught and named.
