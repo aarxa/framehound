@@ -121,7 +121,7 @@ async function capture(app, page, report, split) {
       ? `${settled.replay ? `replayed ${settled.calls} calls` : `${settled.steps} steps`}, ${settled.draws} draws`
       : `${settled.reason}${settled.replay_problem ? ` (replay: ${settled.replay_problem})` : ''}`);
     if (!settled.ok) {
-      if (settled.reason.includes('requestAnimationFrame')) break;
+      if (settled.reason.includes('requestAnimationFrame') && !driver) break; // a driver may get a game going again
       continue;
     }
     const cleanFile = `clean/${app.id}/${m}.png`;

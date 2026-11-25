@@ -11,7 +11,18 @@ export async function start(page) {
   await page.keyboard.down('ArrowUp');
 }
 
+// The race ends after three laps, or early if the ship ends up driving the wrong way; then start a new one.
+async function restartIfOver(page) {
+  const over = await page.evaluate(() => !window.hexGL?.active || window.hexGL?.gameplay?.step === 100);
+  if (!over) return;
+  await page.keyboard.up('ArrowUp');
+  await page.reload({ waitUntil: 'load' });
+  await sleep(3);
+  await start(page);
+}
+
 export async function between(page, gap) {
+  await restartIfOver(page);
   const end = Date.now() + gap * 1000;
   while (Date.now() < end) {
     const r = Math.random();
@@ -20,4 +31,5 @@ export async function between(page, gap) {
     await sleep(0.15 + Math.random() * 0.5);
     if (key) await page.keyboard.up(key);
   }
+  await restartIfOver(page);
 }
