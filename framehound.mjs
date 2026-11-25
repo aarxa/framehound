@@ -6,7 +6,7 @@
 //   node framehound.mjs check <model folder> <screenshot.png ...> [--out folder] [--threshold 0.8]
 //
 // learn opens the app in headless Chrome, freezes it at moments spread over --minutes of play, breaks each frame's
-// draw calls in ten ways (generator/inject/glitch-gl.js), and trains a detector on the result. The last fifth of the
+// draw calls in eleven ways (generator/inject/glitch-gl.js), and trains a detector on the result. The last fifth of the
 // moments is held out, and report.json says how well the model does on those views it never trained on, with the
 // score threshold that flags 5% of clean frames. A driver (--driver) gets a game past its menus and plays it between
 // moments; without one, the camera is dragged a little. A url starting with "/" is served from --serve.

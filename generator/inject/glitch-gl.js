@@ -166,6 +166,7 @@
     if (info.baseSampler && info.uv) out.push('stretched_uvs');
     if (info.position) out.push('exploded_vertices');
     if (p.type !== undefined && p.mode === gl.TRIANGLES) out.push('broken_indices');
+    if (p.mode === gl.TRIANGLES) out.push('dropped_faces');
     if (info.color) out.push('nan_color');
     return out;
   }
@@ -514,6 +515,53 @@
       }, draw);
     },
 
+    // Some of the mesh's faces never get drawn: holes, missing caps, see-through patches in an otherwise fine object.
+    // 'block' skips a run of triangles by splitting the draw in two; 'scattered' makes random triangles degenerate.
+    dropped_faces(gl, draw, rnd, info, p, call) {
+      const tris = Math.floor(p.count / 3);
+      if (tris < 4) return null;
+      const indexed = p.type !== undefined;
+      const style = indexed && rnd() < 0.3 ? 'scattered' : 'block';
+      if (style === 'scattered') {
+        const used = usedVertices(gl, p);
+        if (!used || !used.ebo) return null;
+        const copy = used.bytes.slice();
+        const idx = new used.T(copy.buffer, p.offset, p.count);
+        const share = 0.05 + 0.2 * rnd();
+        let dropped = 0;
+        for (let t = 0; t < tris; t++) {
+          if (rnd() < share) {
+            idx[t * 3 + 1] = idx[t * 3 + 2] = idx[t * 3];
+            dropped++;
+          }
+        }
+        if (!dropped) return null;
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, temp(gl).index);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, copy, gl.STREAM_DRAW);
+        draw();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, used.ebo);
+        return { style, dropped_share: +(dropped / tris).toFixed(3) };
+      }
+      const k = Math.max(1, Math.floor(tris * (0.02 + 0.28 * rnd())));
+      const start = Math.floor(rnd() * (tris - k + 1));
+      const before = start * 3;
+      const after = (tris - start - k) * 3;
+      const a = call.args;
+      // the same call twice, once for the triangles before the gap and once for those after it
+      const parts = { drawArrays: [1, 2], drawArraysInstanced: [1, 2], drawElements: [3, 1], drawElementsInstanced: [3, 1], drawRangeElements: [5, 3] }[call.name];
+      if (!parts) return null;
+      const [offsetAt, countAt] = parts;
+      const step = indexed ? (p.type === gl.UNSIGNED_INT ? 4 : p.type === gl.UNSIGNED_SHORT ? 2 : 1) : 1;
+      const first = a.slice();
+      first[countAt] = before;
+      const second = a.slice();
+      second[countAt] = after;
+      second[offsetAt] = a[offsetAt] + (start + k) * 3 * step;
+      if (before) call.drawWith(first);
+      if (after) call.drawWith(second);
+      return { style, dropped_share: +(k / tris).toFixed(3) };
+    },
+
     // Wrong winding or culling: the front faces vanish and the model shows its inside.
     inside_out(gl, draw) {
       const on = gl.isEnabled(gl.CULL_FACE);
@@ -571,7 +619,7 @@
     const info = programInfo(gl, gl.getParameter(gl.CURRENT_PROGRAM));
     let note = null;
     try {
-      note = GLITCHES[armed.type](gl, draw, armed.rnd, info, p);
+      note = GLITCHES[armed.type](gl, draw, armed.rnd, info, p, { name, args, drawWith: (a) => orig.apply(gl, a) });
     } catch (e) {
       note = null;
       applied = { ok: false, error: String(e) };

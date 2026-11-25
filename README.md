@@ -60,14 +60,20 @@ and tested on 30 frames from the broken release against 30 from the release that
 | [#27809](https://github.com/mrdoob/three.js/issues/27809): a shader error turns the progressive-lightmap scene black (r161) | r160 | **1.00** | 30 of 30 | 0 of 30 |
 | [#30819](https://github.com/mrdoob/three.js/issues/30819): extruded shapes lose their end caps (r175), learned on one page load | r174 | 0.52 (chance) | 30 of 30 | 24 of 30 |
 | the same, learned across 30 page loads (`--reload-every 3`) | r174 | 0.48 (chance) | 0 of 30 | 4 of 30 |
+| the same, also learning from meshes with missing faces (`dropped_faces`) | r174 | 0.52 (chance) | 0 of 30 | 3 of 30 |
 
 The flags use the model's own threshold, set when learning on injected glitches. The first bug is caught on every
 frame, with the black objects outlined.
 
-The second is missed. The example builds a new random shape every time the page loads. Learned from a single load,
-the model flagged most frames of any new load, fixed release included. Learned across many loads, it stops doing
-that, but it still doesn't see the missing caps. They are small, and nothing like them is among the injected
-glitches: those remove whole draw calls, not some of the faces within one.
+The second is missed:
+- **One page load wasn't enough.** The example builds a new random shape every time the page loads. Learned from a
+  single load, the model flagged most frames of any new load, fixed release included. Learned across many loads, it
+  stops doing that.
+- **A matching glitch didn't help.** Adding a glitch that removes some of a mesh's faces didn't change the result,
+  though the model catches that injected glitch every time.
+- **The bug is too small.** Rendering both releases with the same random shape shows that the missing cap covers 687
+  pixels of a 1280×720 frame, 0.075% of it. That's about a third of the smallest glitch framehound learns from (0.2%
+  of the frame, the floor that keeps out changes nobody would see). It's below what framehound can notice.
 
 Two more cases were left out:
 - [#26112](https://github.com/mrdoob/three.js/issues/26112), the car example: no difference shows in headless Chrome.
@@ -153,7 +159,7 @@ node framehound.mjs learn '/HexGL/index.html?controlType=0&hud=0&godmode=1' --id
   patch, and the frame doesn't go blank. Faint changes such as a bloom halo, or a black frame, which looks like a clean
   empty scene, are thrown away.
 
-The ten kinds of breakage:
+The eleven kinds of breakage:
 
 | Glitch | What happens to the draw |
 |---|---|
@@ -161,6 +167,7 @@ The ten kinds of breakage:
 | `missing_draw` | it never happens: a missing wall, a body without a head |
 | `exploded_vertices` | a few vertices get garbage positions and drag spikes across the frame |
 | `broken_indices` | its index data is corrupted, so triangles join the wrong vertices |
+| `dropped_faces` | some of its triangles are never drawn: holes, missing caps, see-through patches |
 | `lost_uvs` | its texture coordinates are lost and the surface takes one texel's colour |
 | `stretched_uvs` | its texture coordinates are squashed and the texture smears |
 | `inside_out` | culling is flipped and the inside shows |
