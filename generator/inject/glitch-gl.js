@@ -1057,9 +1057,7 @@
   // With the model's heatmap (`heat`: a coarse grid over the frame), a draw is ranked by the share of the heat it
   // explains times the mean heat over what it draws, so a full-screen pass or the ground behind an object ranks below
   // the object itself. Without one, the same is done with the box (x0, y0, x1, y1 in frame pixels) as the heat.
-  // Draws that only change the frame through a later pass count half: those to an offscreen target of another size
-  // than the canvas (a shadow map, a bloom buffer), and full-screen passes. A shadow map's draw of the track changes
-  // the track's shading almost as much as the track's own draw, but the track's own draw is what shows.
+  // (Counting draws to offscreen targets, such as shadow maps, at half was tried: on two games it didn't help.)
   function locate({ box, heat = null, pad = 6, top = 3 }) {
     if (!clean) return { ok: false, reason: 'not settled' };
     const t0 = realNow();
@@ -1124,11 +1122,7 @@
       if (heat ? warm > 0 : inside) {
         const coverage = heat ? warm / heatTotal : inside / area;
         const focus = heat ? warm / total : inside / total;
-        const canvas = mainCanvas();
-        const direct = !d.target || (canvas && d.target[0] === canvas.width && d.target[1] === canvas.height);
-        const pass = d.fullscreen && total > 0.5 * outW * outH; // a quad over most of the frame: a full-screen pass
-        const weight = (direct ? 1 : 0.5) * (pass ? 0.5 : 1);
-        found.push({ index: d.index, inside, total, coverage, focus, score: coverage * focus * weight, direct, whole_frame: total > 0.5 * outW * outH, bbox: [bx0, by0, bx1 + 1, by1 + 1] });
+        found.push({ index: d.index, inside, total, coverage, focus, score: coverage * focus, whole_frame: total > 0.5 * outW * outH, bbox: [bx0, by0, bx1 + 1, by1 + 1] });
       }
     }
     found.sort((a, b) => b.score - a.score);

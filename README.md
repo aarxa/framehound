@@ -92,29 +92,35 @@ Two more cases were left out:
   every frame is flagged. The first two draws named are the ground and the object, both drawn with the broken
   lightmap shader (they sample the 1024×1024 lightmap). Finding them takes 0.2 s per frame.
 - **A wrong asset.** In a copy of HexGL, the ship's texture file holds the track's texture instead, as if the wrong
-  file had shipped. The model learned on the right build flags 59 of 77 frames, against about 7% of frames on the
-  right build. The report's top table names the same draw first in 41 of them: 1,676 triangles sampling
+  file had shipped. The model learned on the right build flags 60 of 75 frames, against about 7% of frames on the
+  right build. The report's top table names the same draw first in 52 of them: 1,676 triangles sampling
   `ships/feisar/diffuse.jpg`, the file to check.
 
 ![The top of watch's report on the HexGL build with the wrong ship texture](docs/watch-report.jpg)
 
-To measure naming, watch played HexGL four times for 12 minutes and broke a known draw on about half the frames
-(`--plant 0.5`). Over the four runs, the model flagged 281 of 372 broken frames (76%) and 24 of 351 clean ones
-(7%). For the 79 flagged frames of the last run, this is how often the broken draw came first:
+To measure naming, watch played each game for 12 minutes and broke a known draw on about half the frames
+(`--plant 0.5`):
+- **HexGL, over four runs:** 281 of 372 broken frames flagged (76%), and 24 of 351 clean ones (7%).
+- **Edelweiss:** 58 of 83 (70%), and 19 of 139 clean ones (14%). Its threshold comes from only 28 held-out clean
+  frames.
 
-| Broken draw | Frames | Named first | In the top three |
-|---|---|---|---|
-| a draw to the frame itself | 41 | **73%** | 80% |
-| the same, ranked by the truly broken pixels instead of the model's heatmap | 41 | 90% | 95% |
-| a draw to a shadow map or another offscreen target | 18 | 0% | 22% |
-| a draw that was left out | 20 | can't be named | |
+How often the broken draw came first, on the flagged frames of the last HexGL run and the Edelweiss run:
+
+| Broken draw | HexGL | Edelweiss |
+|---|---|---|
+| a draw to the frame itself: named first | **29 of 41** (71%) | **27 of 30** (90%) |
+| the same, in the top three | 31 of 41 (76%) | 30 of 30 |
+| the same, ranked by the truly broken pixels instead of the model's heatmap | 37 of 41 (90%) | 27 of 30 (90%) |
+| a draw into a shadow map or another offscreen target: named first | 1 of 11 | 3 of 11 |
+| a draw that was left out, or that leaves the frame unchanged when left out | 27, can't be named | 17, can't be named |
 
 - **Offscreen draws.** A draw into a shadow map only shows through the surfaces that receive the shadow. Leaving it out
   changes those surfaces more than the glitch did, so it is rarely pinned down.
-- **Draws that were left out** never drew anything, so there's nothing to name.
-- **The heatmap's cost.** Where the model points loses 17 points against the truly broken pixels, so a better heatmap
-  means better naming. A plain box around the flagged area does worse still: 34% first, against 51% with the heatmap
-  on the same frames.
+- **Draws that can't be named.** A draw that was left out never drew anything. Some glitches also leave the frame
+  as if the draw wasn't there, such as a sky turned inside out. Neither leaves anything to find.
+- **The heatmap's cost.** On HexGL, where the model points loses 19 points against the truly broken pixels. A better
+  heatmap means better naming. A plain box around the flagged area does worse still: on the same HexGL frames, 34%
+  first against 51% with the heatmap, counting all kinds.
 
 **The Vulkan layer** (`native/`) breaks draw calls in native Vulkan apps the same way, in six of the eleven ways so
 far. On a small Vulkan test scene it wrote 825 visible broken frames from 140 captured frames in about ten seconds,
@@ -230,8 +236,7 @@ node framehound.mjs learn '/HexGL/index.html?controlType=0&hud=0&godmode=1' --id
 - **Finds the draws behind a flagged area (watch).** The frozen frame is drawn again once per draw call with that draw
   left out, and the pixels that change are that draw's. Draws are ranked by how much of the model's heatmap they
   explain times how much of what they draw is flagged. That puts the object itself ahead of the ground behind it.
-  Draws that only reach the frame through a later pass count half: draws into shadow maps and other offscreen targets
-  of another size, and full-screen passes. A replayed frame takes 0.1–0.4 s for all of HexGL's ~30 draws.
+  A replayed frame takes 0.1–0.4 s for all of HexGL's ~30 draws.
 
 The eleven kinds of breakage:
 
