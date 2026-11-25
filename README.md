@@ -17,6 +17,17 @@ also check plain screenshots.
 It doesn't need the app's source: it wraps WebGL in the page. There is also a Vulkan version of the injector for
 native apps, in [`native/`](native/).
 
+What it does so far:
+- **Learns a game quickly.** After ten minutes of play it scores AUROC 0.90 on HexGL and 0.94 on Edelweiss, two
+  open-source WebGL games, tested on a separate play-through.
+- **Catches real bugs.** On a three.js release that shipped a broken shader, it flags every frame and names the two
+  draws that use the shader. On a HexGL build with the wrong ship texture, it names the ship's draw and the texture
+  file.
+- **Names the right draw.** When the broken draw draws to the frame itself, watch names it first 71% of the time on
+  HexGL and 90% on Edelweiss.
+- **Works natively too.** The C++ Vulkan layer breaks draws in native Vulkan apps the same way, and works on replays
+  of recorded sessions.
+
 ![Test frames from later in the play sessions, never trained on: frame, the truly broken pixels (red), what the model flagged (cyan)](docs/games-predictions.jpg)
 
 *Frames from later in the play of two open-source games, which the model never trained on. Each row shows the frame, the
