@@ -120,7 +120,7 @@ How often the broken draw came first, on the flagged frames of the last HexGL ru
 | Broken draw | HexGL | Edelweiss |
 |---|---|---|
 | a draw to the frame itself: named first | **29 of 41** (71%) | **27 of 30** (90%) |
-| the same, in the top three | 31 of 41 (76%) | 30 of 30 |
+| the same, in the top three | 31 of 41 (76%) | 30 of 30 (100%) |
 | the same, ranked by the truly broken pixels instead of the model's heatmap | 37 of 41 (90%) | 27 of 30 (90%) |
 | a draw into a shadow map or another offscreen target: named first | 1 of 11 | 3 of 11 |
 | a draw that was left out, or that leaves the frame unchanged when left out | 27, can't be named | 17, can't be named |
@@ -134,14 +134,18 @@ How often the broken draw came first, on the flagged frames of the last HexGL ru
   first against 51% with the heatmap, counting all kinds.
 
 **The Vulkan layer** (`native/`) breaks draw calls in native Vulkan apps the same way, in six of the eleven ways so
-far. On a small Vulkan test scene it wrote 825 visible broken frames from 140 captured frames in about ten seconds,
-where the browser takes minutes. A model trained on the first 80% of those frames scores AUROC 0.93 on the rest. The
-Khronos validation layer finds no errors added by the layer. It also runs on vkcube, Khronos's Vulkan sample, in a
-real window, though vkcube records its command buffers once and reuses them. It also works on GFXReconstruct
-replays, which come out pixel for pixel like the live run, so a session recorded once can be broken again and again
-without the app. Watch works there too (`native/locate.py`). On the test scene with a bug shipped in one draw, the
-broken draw was named first on every flagged frame for three of four bugs. The fourth, a small inside-out cube, was
-missed. See [native/README.md](native/README.md).
+far:
+- **Fast.** On a small Vulkan test scene it wrote 825 visible broken frames from 140 captured frames in about ten
+  seconds. The browser takes minutes.
+- **Learnable.** A model trained on the first 80% of those frames scores AUROC 0.93 on the rest.
+- **Clean.** The Khronos validation layer finds no errors added by the layer, on macOS and on Linux in CI.
+- **Beyond the test scene.** It runs on vkcube, Khronos's Vulkan sample, in a real window, though vkcube records its
+  command buffers once and reuses them. It also works on GFXReconstruct replays, which match the live run pixel for
+  pixel, so a session recorded once can be broken again and again without the app.
+- **Watch for Vulkan** (`native/locate.py`). With a bug shipped in one draw of the test scene, the broken draw was
+  named first on every flagged frame for three of four bugs. The fourth, a small inside-out cube, was missed.
+
+See [native/README.md](native/README.md).
 
 **What doesn't work: one model for every app.** framehound started as a single model meant to spot glitches in any
 game's screenshot. It doesn't get there:
@@ -194,12 +198,18 @@ node framehound.mjs watch models/my-webgl-app https://example.com/my-webgl-app-n
 node framehound.mjs check models/my-webgl-app shot1.png shot2.png
 ```
 
-`watch` writes `watch/<app>-<time>/report.html`. At the top, a table lists the draws named first most often, matched
-across frames by shader, size and textures, since a broken asset or shader shows up in many frames. Each flagged frame
-shows the frame with the flagged area boxed, the heatmap, and the draws found there, best match first. Each draw comes with a picture of what it draws, its shader
-(three.js names its shaders), the textures it samples with their file names, its triangle count, and whether it
-draws to the screen or to an offscreen target such as a shadow map. `--plant 0.5` tests watch itself: it breaks a known
-draw on half the frames and reports how many were caught and named.
+`watch` writes `watch/<app>-<time>/report.html`:
+- **At the top,** a table of the draws named first most often, matched across frames by shader, size and textures. A
+  broken asset or shader shows up in many frames.
+- **For each flagged frame,** the frame with the flagged area boxed, the heatmap, and the draws found there, best match
+  first. Each draw comes with a picture of what it draws and:
+  - its shader (three.js names its shaders)
+  - the textures it samples, with their file names
+  - its triangle count
+  - whether it draws to the screen or to an offscreen target, such as a shadow map
+
+`--plant 0.5` tests watch itself: it breaks a known draw on half the frames, and reports how many were caught and
+named.
 
 `learn` writes `models/<app>/`:
 - `model.pt`
