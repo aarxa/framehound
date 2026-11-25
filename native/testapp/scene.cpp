@@ -2,8 +2,9 @@
 // cubes and spheres, and two glass boxes, drawn to a headless swapchain (no window) and re-recorded every frame, the
 // way game engines do.
 //
-//   fh_scene [--frames 300] [--size 768x432] [--indirect] [--secondary] [--submit2] [--timeline]
-//     --indirect: draw with vkCmdDrawIndexedIndirect; --secondary: record the draws in a secondary command buffer;
+//   fh_scene [--frames 300] [--size 768x432] [--indirect] [--indirect-count] [--secondary] [--submit2] [--timeline]
+//     --indirect: draw with vkCmdDrawIndexedIndirect; --indirect-count: with vkCmdDrawIndexedIndirectCount (exits with
+//     77 where the driver doesn't support it); --secondary: record the draws in a secondary command buffer;
 //     --submit2: submit with vkQueueSubmit2; --timeline: also signal a timeline semaphore each frame
 //   --bug texture:N | --bug inside:N   ship a bug in draw N (0 is the ground, 1-10 the ring, 11 the big sphere):
 //     drawn with the fallback texture, or with culling flipped so its inside shows
@@ -234,13 +235,14 @@ int main(int argc, char** argv) {
   int frames = 300;
   uint32_t W = 768, H = 432;
   std::string shaders = SHADER_DIR;
-  bool indirect = false, secondary = false, submit2 = false, timeline = false;
+  bool indirect = false, indirectCount = false, secondary = false, submit2 = false, timeline = false;
   std::string bugKind;
   int bugDraw = -1;
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) frames = std::atoi(argv[++i]);
     else if (!std::strcmp(argv[i], "--size") && i + 1 < argc) std::sscanf(argv[++i], "%ux%u", &W, &H);
     else if (!std::strcmp(argv[i], "--indirect")) indirect = true;
+    else if (!std::strcmp(argv[i], "--indirect-count")) indirect = indirectCount = true;
     else if (!std::strcmp(argv[i], "--secondary")) secondary = true;
     else if (!std::strcmp(argv[i], "--submit2")) submit2 = true;
     else if (!std::strcmp(argv[i], "--timeline")) timeline = true;
@@ -288,6 +290,17 @@ int main(int argc, char** argv) {
   VkPhysicalDeviceSynchronization2FeaturesKHR sync2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR};
   sync2.synchronization2 = VK_TRUE;
   VkPhysicalDeviceVulkan12Features v12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+  if (indirectCount) {
+    VkPhysicalDeviceVulkan12Features has{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    f2.pNext = &has;
+    vkGetPhysicalDeviceFeatures2(a.phys, &f2);
+    if (!has.drawIndirectCount) {
+      std::fprintf(stderr, "this driver doesn't support drawIndirectCount\n");
+      return 77;
+    }
+    v12.drawIndirectCount = VK_TRUE;
+  }
   v12.timelineSemaphore = timeline ? VK_TRUE : VK_FALSE;
   v12.pNext = submit2 ? &sync2 : nullptr;
   VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
@@ -494,8 +507,10 @@ int main(int argc, char** argv) {
   VkBuffer ibuf = a.Buffer(idx.size() * 4, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, idx.data(), &imem);
   VkDrawIndexedIndirectCommand commands[3];
   for (int k = 0; k < 3; k++) commands[k] = {meshes[k].indexCount, 1, meshes[k].firstIndex, meshes[k].vertexOffset, 0};
-  VkDeviceMemory dmem;
+  VkDeviceMemory dmem, cmem;
   VkBuffer dbuf = a.Buffer(sizeof commands, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, commands, &dmem);
+  const uint32_t one = 1;
+  VkBuffer cbuf = a.Buffer(sizeof one, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, &one, &cmem);
 
   // pipelines: solid, and glass (blended, no depth writes)
   auto shader = [&](const char* file) {
@@ -627,7 +642,9 @@ int main(int argc, char** argv) {
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &sets[set], 0, nullptr);
       Push p{viewProj * model, model, {rgb[0], rgb[1], rgb[2], alpha}, {repeat, 0, 0, 0}};
       vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof p, &p);
-      if (indirect) vkCmdDrawIndexedIndirect(cmd, dbuf, VkDeviceSize(&m - meshes) * sizeof(VkDrawIndexedIndirectCommand), 1, sizeof(VkDrawIndexedIndirectCommand));
+      VkDeviceSize at = VkDeviceSize(&m - meshes) * sizeof(VkDrawIndexedIndirectCommand);
+      if (indirectCount) vkCmdDrawIndexedIndirectCount(cmd, dbuf, at, cbuf, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
+      else if (indirect) vkCmdDrawIndexedIndirect(cmd, dbuf, at, 1, sizeof(VkDrawIndexedIndirectCommand));
       else vkCmdDrawIndexed(cmd, m.indexCount, 1, m.firstIndex, m.vertexOffset, 0);
     };
     const float ground[3] = {0.75f, 0.78f, 0.70f};

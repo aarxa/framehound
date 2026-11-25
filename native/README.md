@@ -97,7 +97,8 @@ node framehound.mjs watch-native models/scene --start 580 --every 10 --count 14 
 `fh_scene` (`testapp/`) is a small Vulkan scene for trying the layer without a game. It draws a textured ground, a ring
 of turning cubes and spheres, and two glass boxes, to a headless swapchain (no window). Like a game engine, it
 re-records its command buffer every frame. Options try the layer on what engines do differently:
-- `--indirect` draws everything with `vkCmdDrawIndexedIndirect`;
+- `--indirect` draws everything with `vkCmdDrawIndexedIndirect`, and `--indirect-count` with
+  `vkCmdDrawIndexedIndirectCount` (MoltenVK doesn't support it, so it's tested on Linux);
 - `--secondary` records the draws in a secondary command buffer;
 - `--submit2` submits with `vkQueueSubmit2`;
 - `--timeline` also signals a timeline semaphore every frame;
@@ -210,7 +211,6 @@ can't show the other glitches. Without it the frame is blank, and there is nothi
 - **Things passed through unbroken:**
   - draws in secondary command buffers, with `FRAMEHOUND_SHADOW_ALL` (on capture frames they are broken like any
     other)
-  - indirect draws with a count buffer (`vkCmdDrawIndirectCount`)
   - submits with anything in `pNext` other than timeline semaphore values
 
   Indirect draws can be broken in every way except `dropped_faces`, since the GPU reads their counts.

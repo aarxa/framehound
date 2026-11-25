@@ -24,8 +24,8 @@
 //   FRAMEHOUND_SHADOW_ALL=1  shadow every command buffer the app records, not just those of capture frames, for apps
 //                        that record their command buffers once and submit them every frame (vkcube does)
 //
-// Limits for now: frames are read from the swapchain image being presented; indirect draws with a count buffer are
-// passed through unbroken, and so are draws in secondary command buffers with FRAMEHOUND_SHADOW_ALL.
+// Limits for now: frames are read from the swapchain image being presented, and draws in secondary command buffers are
+// passed through unbroken with FRAMEHOUND_SHADOW_ALL.
 #include <vulkan/vk_layer.h>
 #include <vulkan/vulkan.h>
 #include <zlib.h>
@@ -39,6 +39,7 @@
 #include <cstdarg>
 #include <filesystem>
 #include <functional>
+#include <initializer_list>
 #include <atomic>
 #include <mutex>
 #include <random>
@@ -1224,6 +1225,35 @@ VKAPI_ATTR void VKAPI_CALL fh_CmdDrawIndexedIndirect(VkCommandBuffer cb, VkBuffe
   }});
 }
 
+// Indirect draws whose number of draws the GPU also reads, from a count buffer (core 1.2, and KHR and AMD names)
+using PFN_CountDraw = void(VKAPI_PTR*)(VkCommandBuffer, VkBuffer, VkDeviceSize, VkBuffer, VkDeviceSize, uint32_t, uint32_t);
+PFN_CountDraw FirstOf(std::initializer_list<PFN_CountDraw> fns) {
+  for (PFN_CountDraw f : fns)
+    if (f) return f;
+  return nullptr;
+}
+
+void CountDraw(VkCommandBuffer cb, const char* call, PFN_CountDraw fn, VkBuffer buffer, VkDeviceSize offset, VkBuffer countBuffer,
+               VkDeviceSize countOffset, uint32_t maxDraws, uint32_t stride) {
+  Recording* r = RecordingOf(cb);
+  Draw(r, cb, {call, 0, 0, true, [=](VkCommandBuffer c, uint32_t, uint32_t) { fn(c, buffer, offset, countBuffer, countOffset, maxDraws, stride); }});
+}
+
+VKAPI_ATTR void VKAPI_CALL fh_CmdDrawIndirectCount(VkCommandBuffer cb, VkBuffer buffer, VkDeviceSize offset, VkBuffer countBuffer,
+                                                   VkDeviceSize countOffset, uint32_t maxDraws, uint32_t stride) {
+  const CmdTable& c = RecordingOf(cb)->device->cmd;
+  CountDraw(cb, "vkCmdDrawIndirectCount", FirstOf({c.CmdDrawIndirectCount, c.CmdDrawIndirectCountKHR, c.CmdDrawIndirectCountAMD}),
+            buffer, offset, countBuffer, countOffset, maxDraws, stride);
+}
+
+VKAPI_ATTR void VKAPI_CALL fh_CmdDrawIndexedIndirectCount(VkCommandBuffer cb, VkBuffer buffer, VkDeviceSize offset, VkBuffer countBuffer,
+                                                          VkDeviceSize countOffset, uint32_t maxDraws, uint32_t stride) {
+  const CmdTable& c = RecordingOf(cb)->device->cmd;
+  CountDraw(cb, "vkCmdDrawIndexedIndirectCount",
+            FirstOf({c.CmdDrawIndexedIndirectCount, c.CmdDrawIndexedIndirectCountKHR, c.CmdDrawIndexedIndirectCountAMD}),
+            buffer, offset, countBuffer, countOffset, maxDraws, stride);
+}
+
 VKAPI_ATTR void VKAPI_CALL fh_CmdExecuteCommands(VkCommandBuffer cb, uint32_t n, const VkCommandBuffer* secondaries) {
   Recording* r = RecordingOf(cb);
   Device* d = r->device;
@@ -1670,7 +1700,12 @@ PFN_vkVoidFunction DeviceFunction(const char* name) {
   FH_HOOK(BeginCommandBuffer) FH_HOOK(EndCommandBuffer) FH_HOOK(CmdBindPipeline) FH_HOOK(CmdDraw)
   FH_HOOK(CmdDrawIndexed) FH_HOOK(CmdExecuteCommands) FH_HOOK(CreateDescriptorSetLayout) FH_HOOK(AllocateDescriptorSets)
   FH_HOOK(CmdBindDescriptorSets) FH_HOOK(CmdDrawIndirect) FH_HOOK(CmdDrawIndexedIndirect) FH_HOOK(SetDebugUtilsObjectNameEXT)
-  FH_HOOK(CreateImage) FH_HOOK(CreateImageView) FH_HOOK(UpdateDescriptorSets)
+  FH_HOOK(CreateImage) FH_HOOK(CreateImageView) FH_HOOK(UpdateDescriptorSets) FH_HOOK(CmdDrawIndirectCount)
+  FH_HOOK(CmdDrawIndexedIndirectCount)
+  for (const char* alias : {"vkCmdDrawIndirectCountKHR", "vkCmdDrawIndirectCountAMD"})
+    if (!strcmp(name, alias)) return (PFN_vkVoidFunction)fh_CmdDrawIndirectCount;
+  for (const char* alias : {"vkCmdDrawIndexedIndirectCountKHR", "vkCmdDrawIndexedIndirectCountAMD"})
+    if (!strcmp(name, alias)) return (PFN_vkVoidFunction)fh_CmdDrawIndexedIndirectCount;
   return GeneratedCommand(name);
 }
 

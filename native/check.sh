@@ -17,8 +17,14 @@ if ! grep -q 'Insert instance layer "VK_LAYER_KHRONOS_validation"' <<< "$loaded"
   exit 1
 fi
 status=0
-for mode in default --indirect --secondary --submit2 --timeline; do
+for mode in default --indirect --indirect-count --secondary --submit2 --timeline; do
   flag=$([ "$mode" = default ] && echo "" || echo "$mode")
+  set +e
+  "$build/fh_scene" --frames 1 $flag > /dev/null 2>&1
+  rc=$?
+  set -e
+  if [ $rc -eq 77 ]; then echo "$mode: skipped, this driver doesn't support it"; continue; fi
+  if [ $rc -ne 0 ]; then echo "$mode: the scene fails on its own ($rc)"; status=1; continue; fi
   alone=$(VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation "$build/fh_scene" --frames 40 $flag 2>&1 | vuids)
   with=$(VK_ADD_LAYER_PATH="$build" VK_INSTANCE_LAYERS=VK_LAYER_FRAMEHOUND_glitch:VK_LAYER_KHRONOS_validation \
     FRAMEHOUND_OUT="$out/$mode" FRAMEHOUND_START=10 FRAMEHOUND_EVERY=20 FRAMEHOUND_CAPTURES=2 \

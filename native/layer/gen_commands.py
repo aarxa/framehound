@@ -14,6 +14,8 @@ import xml.etree.ElementTree as ET
 HANDLED = {
     "vkCmdBindPipeline", "vkCmdDraw", "vkCmdDrawIndexed", "vkCmdExecuteCommands", "vkCmdBindDescriptorSets",
     "vkCmdDrawIndirect", "vkCmdDrawIndexedIndirect",
+    "vkCmdDrawIndirectCount", "vkCmdDrawIndirectCountKHR", "vkCmdDrawIndirectCountAMD",
+    "vkCmdDrawIndexedIndirectCount", "vkCmdDrawIndexedIndirectCountKHR", "vkCmdDrawIndexedIndirectCountAMD",
 }
 
 
