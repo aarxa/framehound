@@ -196,6 +196,10 @@ node framehound.mjs watch models/my-webgl-app https://example.com/my-webgl-app-n
 
 # check screenshots: a verdict, a glitch score, the likely kind of glitch, and a heatmap image
 node framehound.mjs check models/my-webgl-app shot1.png shot2.png
+
+# the same for a native Vulkan app, through the layer in native/ (build it first, see native/README.md)
+node framehound.mjs learn-native --id my-game -- ./my-vulkan-game
+node framehound.mjs watch-native models/my-game -- ./my-vulkan-game-new-build
 ```
 
 `watch` writes `watch/<app>-<time>/report.html`:

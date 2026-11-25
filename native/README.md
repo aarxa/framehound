@@ -74,6 +74,13 @@ Then learn from it as from any capture:
 .venv/bin/python train/train.py --data data/native-scene-split --out runs/native-scene --epochs 15
 ```
 
+`framehound.mjs` does all of that in one step, and runs `locate.py` (below) for watch:
+
+```bash
+node framehound.mjs learn-native --id scene --every 5 --captures 140 -- native/build/fh_scene --frames 720
+node framehound.mjs watch-native models/scene --start 580 --every 10 --count 14 -- native/build/fh_scene --frames 720 --bug texture:5
+```
+
 | Setting | Meaning |
 |---|---|
 | `FRAMEHOUND_OUT` | folder to write to; without it the layer passes everything through |

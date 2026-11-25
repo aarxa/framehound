@@ -5,6 +5,8 @@
 //                                   [--out models/<id>]
 //   node framehound.mjs check <model folder> <screenshot.png ...> [--out folder] [--threshold 0.8]
 //   node framehound.mjs watch <model folder> <url> [--driver play.mjs] [--serve folder] [--minutes 5] [--out folder]
+//   node framehound.mjs learn-native --id name [--every 5] [--captures 140] -- <Vulkan app command>
+//   node framehound.mjs watch-native <model folder> [--every 20] [--count 15] -- <Vulkan app command>
 //
 // learn opens the app in headless Chrome, freezes it at moments spread over --minutes of play, breaks each frame's
 // draw calls in eleven ways (generator/inject/glitch-gl.js), and trains a detector on the result. The last fifth of the
@@ -15,14 +17,22 @@
 // watch plays the app (a new build, say) the same way and checks every frame it stops on. For each frame the model
 // flags, it finds the draw calls that drew the flagged pixels and writes them into report.html with their shader,
 // textures and size (generator/watch.mjs). --plant 0.5 tests watch itself by breaking a known draw on half the frames.
+//
+// learn-native and watch-native do the same for a native Vulkan app, through the layer in native/ (build it first, see
+// native/README.md). The app runs with the layer loaded; for watch it runs twice, so it has to draw the same frames
+// each time (a deterministic app, or a GFXReconstruct replay of a recording).
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { copyFile, readFile } from 'node:fs/promises';
+import { copyFile, readFile, rm } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
-const [command, ...rest] = process.argv.slice(2);
+const [command, ...all] = process.argv.slice(2);
+// everything after a lone "--" is the command line of a native app
+const split = all.indexOf('--');
+const rest = split < 0 ? all : all.slice(0, split);
+const appCommand = split < 0 ? [] : all.slice(split + 1);
 const positional = [];
 const opts = {};
 for (let i = 0; i < rest.length; i++) {
@@ -32,9 +42,9 @@ for (let i = 0; i < rest.length; i++) {
 const python = process.env.FRAMEHOUND_PYTHON ?? (existsSync(join(root, '.venv/bin/python')) ? join(root, '.venv/bin/python') : 'python3');
 const mine = (p) => resolve(process.cwd(), String(p)); // paths the user gives are relative to where they ran us
 
-function run(cmd, argv) {
+function run(cmd, argv, { env, cwd = root } = {}) {
   return new Promise((ok, fail) => {
-    const child = spawn(cmd, argv, { cwd: root, stdio: 'inherit' });
+    const child = spawn(cmd, argv, { cwd, stdio: 'inherit', env: env ? { ...process.env, ...env } : process.env });
     child.on('error', fail);
     child.on('exit', (code) => (code === 0 ? ok() : fail(new Error(`${[cmd, ...argv].join(' ')} exited with ${code}`))));
   });
@@ -95,11 +105,53 @@ async function watch() {
     ...(opts.driver ? ['--driver', mine(opts.driver)] : []), ...(opts.serve ? ['--serve', mine(opts.serve)] : [])]);
 }
 
-const commands = { learn, check, watch };
+// learn for a native Vulkan app: the layer breaks its draws while it runs, then the same split, training and test as
+// learn
+async function learnNative() {
+  if (!appCommand.length) throw new Error('usage: framehound learn-native --id name [--every 5] [--captures 140] -- <app command>');
+  const id = String(opts.id ?? basename(appCommand[0])).replace(/[^\w-]+/g, '_');
+  const out = mine(opts.out ?? join('models', id));
+  const step = (n, text) => console.log(`\n[${n}/4] ${text}`);
+  step(1, `running ${appCommand.join(' ')} with the framehound layer`);
+  await rm(join(out, 'frames'), { recursive: true, force: true }); // the layer appends to its manifest
+  await run(appCommand[0], appCommand.slice(1), {
+    cwd: process.cwd(),
+    env: {
+      VK_ADD_LAYER_PATH: join(root, 'native/build'), VK_INSTANCE_LAYERS: 'VK_LAYER_FRAMEHOUND_glitch',
+      FRAMEHOUND_OUT: join(out, 'frames'), FRAMEHOUND_APP: id, FRAMEHOUND_START: String(opts.start ?? 10),
+      FRAMEHOUND_EVERY: String(opts.every ?? 5), FRAMEHOUND_CAPTURES: String(opts.captures ?? 140),
+      FRAMEHOUND_VARIANTS: String(opts.variants ?? 10), ...(opts['shadow-all'] ? { FRAMEHOUND_SHADOW_ALL: '1' } : {}),
+    },
+  });
+  step(2, 'holding out the last fifth of the frames for testing');
+  await run(python, ['-I', 'scripts/split_same_page.py', join(out, 'frames'), join(out, 'split'), '--last-share', '0.2']);
+  step(3, 'training');
+  await run(python, ['train/train.py', '--data', join(out, 'split'), '--out', join(out, 'run'), '--epochs', String(opts.epochs ?? 15)]);
+  step(4, 'testing on the held-out frames');
+  await run(python, ['train/eval_by_page.py', '--ckpt', join(out, 'run/best.pt'), '--data', join(out, 'split'), '--json', join(out, 'report.json')]);
+  await copyFile(join(out, 'run/best.pt'), join(out, 'model.pt'));
+  const r = JSON.parse(await readFile(join(out, 'report.json'), 'utf8'));
+  console.log(`\nmodel for ${id} in ${out}: AUROC ${r.auroc} (95% CI ${r.auroc_95ci.join('–')}) on held-out frames`);
+}
+
+// watch for a native Vulkan app: native/locate.py runs it twice, checks its frames and names the draws behind flags
+async function watchNative() {
+  const [model] = positional;
+  if (!model || !appCommand.length) throw new Error('usage: framehound watch-native <model folder> [--every 20] [--count 15] -- <app command>');
+  const id = String(opts.id ?? basename(mine(model)));
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  const pass = ['start', 'every', 'count', 'expect'].flatMap((k) => (opts[k] !== undefined ? [`--${k}`, String(opts[k])] : []));
+  await run(python, [join(root, 'native/locate.py'), '--model', mine(model), '--id', id, '--out', mine(opts.out ?? join('watch', `${id}-${stamp}`)),
+    ...pass, '--', ...appCommand], { cwd: process.cwd() });
+}
+
+const commands = { learn, check, watch, 'learn-native': learnNative, 'watch-native': watchNative };
 if (!commands[command]) {
   console.log('usage:\n  framehound learn <url> [--driver play.mjs] [--serve folder] [--minutes 10] [--out models/<id>]\n' +
     '  framehound check <model folder> <screenshot.png ...> [--out folder] [--threshold t]\n' +
-    '  framehound watch <model folder> <url> [--driver play.mjs] [--serve folder] [--minutes 5] [--out folder]');
+    '  framehound watch <model folder> <url> [--driver play.mjs] [--serve folder] [--minutes 5] [--out folder]\n' +
+    '  framehound learn-native --id name [--every 5] [--captures 140] -- <Vulkan app command>\n' +
+    '  framehound watch-native <model folder> [--every 20] [--count 15] -- <Vulkan app command>');
   process.exit(command ? 1 : 0);
 }
 commands[command]().catch((e) => {
