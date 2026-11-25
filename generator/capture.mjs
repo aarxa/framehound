@@ -8,6 +8,7 @@
 //   node generator/capture.mjs --url https://example.com/game.html [--id mygame] [--driver my-driver.mjs] --out ...
 //        [--warmup 6] [--gap 3] [--workers 4] [--serve sources/threejs-r170] [--types missing_texture,inside_out]
 //        [--width 768 --height 432] [--min-strong 0.001] [--app-timeout 180] [--fetch-missing <base url>]
+//        [--reload-every N]   (reload the page every N moments, for apps whose content changes from load to load)
 //
 // The apps file has one page per line: "<id> <url> [driver.mjs]" (lines starting with # are skipped). A url starting with "/" is
 // served from the --serve folder on a local server.
@@ -121,8 +122,15 @@ async function capture(app, page, report, split) {
   report.canvas = status.canvas;
   report.webgl2 = status.webgl2;
 
+  const reloadEvery = Number(args['reload-every'] ?? 0);
   for (let m = 0; m < moments; m++) {
-    if (m > 0 && driver?.between) {
+    if (m > 0 && reloadEvery && m % reloadEvery === 0) {
+      // a fresh load: apps that build random or changing content show something new each time
+      await page.reload({ waitUntil: 'load', timeout: 60000 });
+      await sleep(warmup);
+      if (driver?.start) await driver.start(page);
+      await page.evaluate(([w, h]) => window.__fh.setSize(w, h), [width, height]);
+    } else if (m > 0 && driver?.between) {
       await page.evaluate(() => window.__fh.unfreeze());
       await driver.between(page, gap);
     } else if (m > 0) {

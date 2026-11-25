@@ -58,14 +58,16 @@ and tested on 30 frames from the broken release against 30 from the release that
 | Bug | Learned on | AUROC, broken vs fixed | Broken frames flagged | Fixed frames flagged |
 |---|---|---|---|---|
 | [#27809](https://github.com/mrdoob/three.js/issues/27809): a shader error turns the progressive-lightmap scene black (r161) | r160 | **1.00** | 30 of 30 | 0 of 30 |
-| [#30819](https://github.com/mrdoob/three.js/issues/30819): extruded shapes lose their end caps (r175) | r174 | 0.52 (chance) | 30 of 30 | 24 of 30 |
+| [#30819](https://github.com/mrdoob/three.js/issues/30819): extruded shapes lose their end caps (r175), learned on one page load | r174 | 0.52 (chance) | 30 of 30 | 24 of 30 |
+| the same, learned across 30 page loads (`--reload-every 3`) | r174 | 0.48 (chance) | 0 of 30 | 4 of 30 |
 
 The flags use the model's own threshold, set when learning on injected glitches. The first bug is caught on every
 frame, with the black objects outlined.
 
-The second is missed, for two reasons. The missing caps are small. And the example builds a new random shape every
-time the page loads, while the model learned from a single load. So it flags most frames of every new load, fixed
-release included. An app whose content changes from run to run has to be learned across several runs.
+The second is missed. The example builds a new random shape every time the page loads. Learned from a single load,
+the model flagged most frames of any new load, fixed release included. Learned across many loads, it stops doing
+that, but it still doesn't see the missing caps. They are small, and nothing like them is among the injected
+glitches: those remove whole draw calls, not some of the faces within one.
 
 Two more cases were left out:
 - [#26112](https://github.com/mrdoob/three.js/issues/26112), the car example: no difference shows in headless Chrome.
