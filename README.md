@@ -121,8 +121,9 @@ Two more cases were left out:
 To measure naming, watch played each game for 12 minutes and broke a known draw on about half the frames
 (`--plant 0.5`):
 - **HexGL, over four runs:** 281 of 372 broken frames flagged (76%), and 24 of 351 clean ones (7%).
-- **Edelweiss:** 58 of 83 (70%), and 19 of 139 clean ones (14%). Its threshold comes from only 28 held-out clean
-  frames.
+- **Edelweiss:** 58 of 83 (70%), and 19 of 139 clean ones (14%). But 18 of those 19 show no level at all, only the
+  background colour around the character: the random walk had fallen off the world. Of the 121 clean frames that show
+  the game, one was flagged. On the separate test session's 111 clean frames, the same threshold flags 6%.
 
 How often the broken draw came first, on the flagged frames of the last HexGL run and the Edelweiss run:
 
