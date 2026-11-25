@@ -39,6 +39,7 @@
 #include <cstdarg>
 #include <filesystem>
 #include <functional>
+#include <atomic>
 #include <mutex>
 #include <random>
 #include <string>
@@ -202,7 +203,8 @@ struct Device {
 
   // frames
   uint64_t frame = 0;
-  long drawsThisFrame = 0, drawsLastFrame = 0;
+  std::atomic<long> drawsThisFrame{0};  // threads may record at once
+  long drawsLastFrame = 0;
   bool capturing = false;
   bool locating = false;  // this frame is a locate frame
   long captured = 0;
@@ -689,8 +691,13 @@ VkDescriptorSet SwappedSet(Device* d, VkDescriptorSet src, const VkDescriptorSet
 
 // Break one draw in shadow `s`, the way variant v asks; records the draw normally if nothing applies.
 void BreakDraw(Device* d, Recording* r, VkCommandBuffer s, Variant& v, const DrawCall& dc) {
-  auto pi = d->pipelines.find(r->bound);
-  const PipelineInfo* p = pi == d->pipelines.end() ? nullptr : &pi->second;
+  PipelineInfo found;
+  const PipelineInfo* p = nullptr;
+  {
+    std::lock_guard<std::mutex> g(lock);
+    auto pi = d->pipelines.find(r->bound);
+    if (pi != d->pipelines.end()) found = pi->second, p = &found;
+  }
   std::vector<const char*> ok;
   bool scene = p && IsTriangles(p->topology) && (dc.indirect || dc.count > 6);  // leaves out full-screen passes, sprites, lines
   if (scene) {
@@ -1141,15 +1148,21 @@ void Draw(Recording* r, VkCommandBuffer cb, const DrawCall& dc) {
     } else if (var.skip) {
       // locate: this copy leaves the draw out; note what it drew with
       var.applied = true, var.type = "missing_draw", var.call = dc.call, var.count = dc.count;
-      auto pi = d->pipelines.find(r->bound);
-      var.pipeline = pi == d->pipelines.end() ? 0 : pi->second.id;
-      auto nm = d->names.find(uint64_t(r->bound));
-      if (nm != d->names.end()) var.pipelineName = nm->second;
+      {
+        std::lock_guard<std::mutex> g(lock);
+        auto pi = d->pipelines.find(r->bound);
+        var.pipeline = pi == d->pipelines.end() ? 0 : pi->second.id;
+        auto nm = d->names.find(uint64_t(r->bound));
+        if (nm != d->names.end()) var.pipelineName = nm->second;
+      }
       var.sets = "[";
-      for (const BoundSet& b : r->sets) {
-        if (!b.set) continue;
-        auto sn = d->names.find(uint64_t(b.set));
-        var.sets += (var.sets.size() > 1 ? ", " : "") + (sn != d->names.end() ? Json(sn->second) : std::string("null"));
+      {
+        std::lock_guard<std::mutex> g(lock);
+        for (const BoundSet& b : r->sets) {
+          if (!b.set) continue;
+          auto sn = d->names.find(uint64_t(b.set));
+          var.sets += (var.sets.size() > 1 ? ", " : "") + (sn != d->names.end() ? Json(sn->second) : std::string("null"));
+        }
       }
       var.sets += "]";
       // the images behind its descriptor sets
@@ -1236,8 +1249,7 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_QueuePresentKHR(VkQueue queue, const VkPresent
   VkResult r = d->QueuePresentKHR(queue, info);
   const Config& c = config();
   if (c.active() && !d->placeholdersTried && Wanted("missing_texture")) MakePlaceholders(d, queue);
-  d->drawsLastFrame = d->drawsThisFrame;
-  d->drawsThisFrame = 0;
+  d->drawsLastFrame = d->drawsThisFrame.exchange(0);
   d->frame++;
   long f = long(d->frame);
   d->variants.clear();
@@ -1398,14 +1410,19 @@ VkResult CaptureSubmit(Device* d, VkQueue queue, const SubmitOps& ops) {
       else if (!r->local && r->shadowFrame == d->frame && !local) swap.push_back(r);
     }
   }
-  auto sc = d->swapchains.find(d->lastAcquired);
-  bool readable = sc != d->swapchains.end() && !sc->second.images.empty();
+  Swapchain swc;  // a copy, taken under the lock
+  {
+    std::lock_guard<std::mutex> g(lock);
+    auto it = d->swapchains.find(d->lastAcquired);
+    if (it != d->swapchains.end()) swc = it->second;
+  }
+  bool readable = !swc.images.empty();
   if (swap.empty() && d->capturing && d->variants.empty() && !config().shadowAll && readable) {
     // clean frames only (FRAMEHOUND_VARIANTS=0): the app's own submit, then read the frame back
     VkResult r = ops.passThrough();
     std::vector<uint8_t> clean;
-    if (r == VK_SUCCESS && d->QueueWaitIdle(queue) == VK_SUCCESS && ReadImage(d, queue, sc->second, clean)) {
-      SaveClean(d, sc->second, clean);
+    if (r == VK_SUCCESS && d->QueueWaitIdle(queue) == VK_SUCCESS && ReadImage(d, queue, swc, clean)) {
+      SaveClean(d, swc, clean);
       d->captured++;
     }
     d->capturing = false;
@@ -1441,14 +1458,14 @@ VkResult CaptureSubmit(Device* d, VkQueue queue, const SubmitOps& ops) {
         lists.back().push_back(swapped && v < r->shadows.size() ? r->shadows[v] : cb);
       }
     }
-    if (ops.run(lists) == VK_SUCCESS && Wait(d)) ReadImage(d, queue, sc->second, broken[v]);
+    if (ops.run(lists) == VK_SUCCESS && Wait(d)) ReadImage(d, queue, swc, broken[v]);
   }
   // 3. the app's own commands, without the waits already done, then the clean frame
   VkResult r = ops.ownWithoutWaits();
   std::vector<uint8_t> clean;
-  if (r == VK_SUCCESS && d->QueueWaitIdle(queue) == VK_SUCCESS && ReadImage(d, queue, sc->second, clean)) {
-    if (d->locating) SaveLocate(d, sc->second, clean, broken, used);
-    else SaveCapture(d, sc->second, clean, broken, used);
+  if (r == VK_SUCCESS && d->QueueWaitIdle(queue) == VK_SUCCESS && ReadImage(d, queue, swc, clean)) {
+    if (d->locating) SaveLocate(d, swc, clean, broken, used);
+    else SaveCapture(d, swc, clean, broken, used);
     d->captured++;
   }
   d->capturing = false;
