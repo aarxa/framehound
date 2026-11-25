@@ -466,8 +466,7 @@ int main(int argc, char** argv) {
     sai.descriptorSetCount = 1;
     sai.pSetLayouts = &setLayout;
     CHECK(vkAllocateDescriptorSets(a.device, &sai, &sets[t]));
-    name(VK_OBJECT_TYPE_DESCRIPTOR_SET, uint64_t(sets[t]), textureNames[t]);
-    name(VK_OBJECT_TYPE_IMAGE, uint64_t(tex), textureNames[t]);
+    name(VK_OBJECT_TYPE_IMAGE, uint64_t(tex), textureNames[t]);  // engines name their textures, rarely their sets
     VkDescriptorImageInfo dii{sampler, a.View(tex, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     w.dstSet = sets[t];

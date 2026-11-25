@@ -104,8 +104,10 @@ It names its pipelines and textures with `VK_EXT_debug_utils`, as engines do.
 2. The second run draws each flagged frame once per draw call with that draw left out (`FRAMEHOUND_LOCATE`). Draws
    are ranked by the model's heatmap, as in the WebGL watch.
 
-The report describes each draw by its call, size, pipeline and descriptor sets. It uses the names the app gave them
-with `VK_EXT_debug_utils`, as engines do in their development builds.
+The report describes each draw by its call, size, pipeline and the textures it samples. The layer follows the draw's
+descriptor sets to their image views and images. It names things by what the app called them with `VK_EXT_debug_utils`,
+as engines do in their development builds, or by size when they're unnamed. Descriptor sets written with update
+templates aren't followed yet.
 
 ```bash
 .venv/bin/python native/locate.py --model models/native-scene --out watch/native-bug --start 580 --every 10 --count 14 \

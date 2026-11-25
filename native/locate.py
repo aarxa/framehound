@@ -190,8 +190,9 @@ table {{ border-collapse: collapse; width: 100%; font-size: 14px; }} th, td {{ t
 def describe_html(x):
     tris = f"{x['count'] // 3:,} triangles" if x["count"] else "an indirect draw"
     name = f"pipeline “{x['pipeline_name']}” ({x['pipeline']})" if x.get("pipeline_name") else f"pipeline {x['pipeline']}"
-    sets = ", ".join(s or "unnamed" for s in x.get("sets", [])) or "none"
-    return f"{x['call']}, {tris}, {name}; descriptor sets: {sets}"
+    textures = ", ".join(x.get("textures") or []) or "none"  # image names the app gave, or sizes
+    named_sets = [s for s in x.get("sets", []) if s]
+    return f"{x['call']}, {tris}, {name}; textures: {textures}" + (f"; descriptor sets: {', '.join(named_sets)}" if named_sets else "")
 
 
 if __name__ == "__main__":

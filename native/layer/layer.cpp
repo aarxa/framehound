@@ -124,6 +124,7 @@ struct Variant {
   int pipeline = 0;   // the pipeline it drew with, numbered in creation order
   std::string pipelineName;
   std::string sets;   // JSON list of the names of its bound descriptor sets, when the app named them
+  std::string textures;  // JSON list of the images its bound descriptor sets hold: name, or size when unnamed
 };
 
 struct BoundSet {
@@ -207,6 +208,11 @@ struct Device {
   long captured = 0;
   int nextPipelineId = 0;
   std::unordered_map<uint64_t, std::string> names;  // debug names the app gave its objects (VK_EXT_debug_utils)
+  // what each descriptor set samples, for naming a draw's textures: set -> binding -> image views; view -> image;
+  // image -> size
+  std::unordered_map<VkDescriptorSet, std::unordered_map<uint32_t, std::vector<VkImageView>>> setImages;
+  std::unordered_map<VkImageView, VkImage> viewImage;
+  std::unordered_map<VkImage, VkExtent3D> imageSize;
   std::vector<Variant> variants;
   std::mt19937 rng{1};
   unsigned nextSeed = 1;
@@ -914,6 +920,47 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_SetDebugUtilsObjectNameEXT(VkDevice device, co
   return d->SetDebugUtilsObjectNameEXT ? d->SetDebugUtilsObjectNameEXT(device, info) : VK_SUCCESS;
 }
 
+// images, their views, and the descriptor writes that put them in sets, to name the textures a draw samples
+VKAPI_ATTR VkResult VKAPI_CALL fh_CreateImage(VkDevice device, const VkImageCreateInfo* info, const VkAllocationCallbacks* a, VkImage* image) {
+  Device* d = DeviceOf(device);
+  VkResult r = d->CreateImage(device, info, a, image);
+  if (r == VK_SUCCESS) {
+    std::lock_guard<std::mutex> g(lock);
+    d->imageSize[*image] = info->extent;
+  }
+  return r;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL fh_CreateImageView(VkDevice device, const VkImageViewCreateInfo* info, const VkAllocationCallbacks* a, VkImageView* view) {
+  Device* d = DeviceOf(device);
+  VkResult r = d->CreateImageView(device, info, a, view);
+  if (r == VK_SUCCESS) {
+    std::lock_guard<std::mutex> g(lock);
+    d->viewImage[*view] = info->image;
+  }
+  return r;
+}
+
+VKAPI_ATTR void VKAPI_CALL fh_UpdateDescriptorSets(VkDevice device, uint32_t nw, const VkWriteDescriptorSet* writes, uint32_t nc, const VkCopyDescriptorSet* copies) {
+  Device* d = DeviceOf(device);
+  d->UpdateDescriptorSets(device, nw, writes, nc, copies);
+  std::lock_guard<std::mutex> g(lock);
+  for (uint32_t i = 0; i < nw; i++) {
+    const VkWriteDescriptorSet& w = writes[i];
+    bool image = w.descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER || w.descriptorType == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    if (!image || !w.pImageInfo) continue;
+    auto& views = d->setImages[w.dstSet][w.dstBinding];
+    if (views.size() < w.dstArrayElement + w.descriptorCount) views.resize(w.dstArrayElement + w.descriptorCount);
+    for (uint32_t k = 0; k < w.descriptorCount; k++) views[w.dstArrayElement + k] = w.pImageInfo[k].imageView;
+  }
+  for (uint32_t i = 0; i < nc; i++) {
+    auto src = d->setImages.find(copies[i].srcSet);
+    if (src == d->setImages.end()) continue;
+    auto b = src->second.find(copies[i].srcBinding);
+    if (b != src->second.end()) d->setImages[copies[i].dstSet][copies[i].dstBinding] = b->second;
+  }
+}
+
 VKAPI_ATTR VkResult VKAPI_CALL fh_CreateDescriptorSetLayout(VkDevice device, const VkDescriptorSetLayoutCreateInfo* info, const VkAllocationCallbacks* a, VkDescriptorSetLayout* out) {
   Device* d = DeviceOf(device);
   VkResult r = d->CreateDescriptorSetLayout(device, info, a, out);
@@ -1105,6 +1152,28 @@ void Draw(Recording* r, VkCommandBuffer cb, const DrawCall& dc) {
         var.sets += (var.sets.size() > 1 ? ", " : "") + (sn != d->names.end() ? Json(sn->second) : std::string("null"));
       }
       var.sets += "]";
+      // the images behind its descriptor sets
+      std::vector<std::string> seen;
+      {
+        std::lock_guard<std::mutex> g(lock);
+        for (const BoundSet& b : r->sets) {
+          auto si = d->setImages.find(b.set);
+          if (!b.set || si == d->setImages.end()) continue;
+          for (const auto& [binding, views] : si->second)
+            for (VkImageView view : views) {
+              auto vi = d->viewImage.find(view);
+              if (vi == d->viewImage.end()) continue;
+              auto nm2 = d->names.find(uint64_t(vi->second));
+              auto sz = d->imageSize.find(vi->second);
+              std::string label = nm2 != d->names.end() ? nm2->second
+                                  : sz != d->imageSize.end() ? std::to_string(sz->second.width) + "x" + std::to_string(sz->second.height) : "?";
+              if (std::find(seen.begin(), seen.end(), label) == seen.end()) seen.push_back(label);
+            }
+        }
+      }
+      var.textures = "[";
+      for (size_t i = 0; i < seen.size(); i++) var.textures += (i ? ", " : "") + Json(seen[i]);
+      var.textures += "]";
     } else {
       BreakDraw(d, r, r->shadows[v], var, dc);
     }
@@ -1292,10 +1361,10 @@ void SaveLocate(Device* d, const Swapchain& sc, const std::vector<uint8_t>& clea
       WritePng(dir + "/without-" + std::to_string(k) + ".png", w, h, 3, without[k].data());
       changedDraws++;
     }
-    char buf[1024];
-    std::snprintf(buf, sizeof buf, "%s{\"index\": %zu, \"call\": %s, \"count\": %u, \"pipeline\": %d, \"pipeline_name\": %s, \"sets\": %s, \"changed\": %ld}",
+    char buf[2048];
+    std::snprintf(buf, sizeof buf, "%s{\"index\": %zu, \"call\": %s, \"count\": %u, \"pipeline\": %d, \"pipeline_name\": %s, \"sets\": %s, \"textures\": %s, \"changed\": %ld}",
                   list.empty() ? "" : ",\n  ", k, Json(v.call).c_str(), v.count, v.pipeline, v.pipelineName.empty() ? "null" : Json(v.pipelineName).c_str(),
-                  v.sets.empty() ? "[]" : v.sets.c_str(), changed);
+                  v.sets.empty() ? "[]" : v.sets.c_str(), v.textures.empty() ? "[]" : v.textures.c_str(), changed);
     list += buf;
   }
   if (FILE* f = std::fopen((dir + "/draws.json").c_str(), "w")) {
@@ -1584,6 +1653,7 @@ PFN_vkVoidFunction DeviceFunction(const char* name) {
   FH_HOOK(BeginCommandBuffer) FH_HOOK(EndCommandBuffer) FH_HOOK(CmdBindPipeline) FH_HOOK(CmdDraw)
   FH_HOOK(CmdDrawIndexed) FH_HOOK(CmdExecuteCommands) FH_HOOK(CreateDescriptorSetLayout) FH_HOOK(AllocateDescriptorSets)
   FH_HOOK(CmdBindDescriptorSets) FH_HOOK(CmdDrawIndirect) FH_HOOK(CmdDrawIndexedIndirect) FH_HOOK(SetDebugUtilsObjectNameEXT)
+  FH_HOOK(CreateImage) FH_HOOK(CreateImageView) FH_HOOK(UpdateDescriptorSets)
   return GeneratedCommand(name);
 }
 
