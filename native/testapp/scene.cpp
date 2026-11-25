@@ -2,8 +2,9 @@
 // cubes and spheres, and two glass boxes, drawn to a headless swapchain (no window) and re-recorded every frame, the
 // way game engines do.
 //
-//   fh_scene [--frames 300] [--size 768x432] [--indirect] [--secondary]
-//     --indirect: draw with vkCmdDrawIndexedIndirect; --secondary: record the draws in a secondary command buffer
+//   fh_scene [--frames 300] [--size 768x432] [--indirect] [--secondary] [--submit2] [--timeline]
+//     --indirect: draw with vkCmdDrawIndexedIndirect; --secondary: record the draws in a secondary command buffer;
+//     --submit2: submit with vkQueueSubmit2; --timeline: also signal a timeline semaphore each frame
 #include <vulkan/vulkan.h>
 
 #include <cmath>
@@ -231,12 +232,14 @@ int main(int argc, char** argv) {
   int frames = 300;
   uint32_t W = 768, H = 432;
   std::string shaders = SHADER_DIR;
-  bool indirect = false, secondary = false;
+  bool indirect = false, secondary = false, submit2 = false, timeline = false;
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) frames = std::atoi(argv[++i]);
     else if (!std::strcmp(argv[i], "--size") && i + 1 < argc) std::sscanf(argv[++i], "%ux%u", &W, &H);
     else if (!std::strcmp(argv[i], "--indirect")) indirect = true;
     else if (!std::strcmp(argv[i], "--secondary")) secondary = true;
+    else if (!std::strcmp(argv[i], "--submit2")) submit2 = true;
+    else if (!std::strcmp(argv[i], "--timeline")) timeline = true;
   }
   App a;
 
@@ -272,7 +275,14 @@ int main(int argc, char** argv) {
   vkEnumerateDeviceExtensionProperties(a.phys, nullptr, &ne, exts.data());
   for (auto& e : exts)
     if (!std::strcmp(e.extensionName, "VK_KHR_portability_subset")) dext.push_back("VK_KHR_portability_subset");
+  if (submit2) dext.push_back("VK_KHR_synchronization2");
+  VkPhysicalDeviceSynchronization2FeaturesKHR sync2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR};
+  sync2.synchronization2 = VK_TRUE;
+  VkPhysicalDeviceVulkan12Features v12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+  v12.timelineSemaphore = timeline ? VK_TRUE : VK_FALSE;
+  v12.pNext = submit2 ? &sync2 : nullptr;
   VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+  dci.pNext = &v12;
   dci.queueCreateInfoCount = 1;
   dci.pQueueCreateInfos = &qi;
   dci.enabledExtensionCount = uint32_t(dext.size());
@@ -287,7 +297,7 @@ int main(int argc, char** argv) {
   vkGetPhysicalDeviceSurfaceFormatsKHR(a.phys, surface, &nf, formats.data());
   VkSurfaceFormatKHR fmt = formats[0];
   for (auto& f : formats)
-    if (f.format == VK_FORMAT_B8G8R8A8_UNORM) fmt = f;
+    if (f.format == VK_FORMAT_B8G8R8A8_UNORM && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) fmt = f;
   VkSurfaceCapabilitiesKHR caps;
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(a.phys, surface, &caps);
   VkSwapchainCreateInfoKHR sci{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
@@ -537,6 +547,13 @@ int main(int argc, char** argv) {
   VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
   VkFence done;
   CHECK(vkCreateFence(a.device, &fci, nullptr, &done));
+  VkSemaphoreTypeCreateInfo sti{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+  sti.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+  VkSemaphoreCreateInfo tsi{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+  tsi.pNext = &sti;
+  VkSemaphore frameCount = VK_NULL_HANDLE;
+  if (timeline) CHECK(vkCreateSemaphore(a.device, &tsi, nullptr, &frameCount));
+  auto queueSubmit2 = submit2 ? (PFN_vkQueueSubmit2KHR)vkGetDeviceProcAddr(a.device, "vkQueueSubmit2KHR") : nullptr;
   const float palette[10][3] = {{0.90f, 0.30f, 0.25f}, {0.95f, 0.65f, 0.20f}, {0.95f, 0.90f, 0.35f}, {0.45f, 0.80f, 0.35f}, {0.25f, 0.70f, 0.75f},
                                 {0.30f, 0.45f, 0.90f}, {0.60f, 0.40f, 0.85f}, {0.90f, 0.45f, 0.70f}, {0.85f, 0.85f, 0.85f}, {0.55f, 0.40f, 0.30f}};
   Mat proj = Perspective(0.9f, float(W) / H, 0.1f, 100.f);
@@ -608,12 +625,30 @@ int main(int argc, char** argv) {
     vkCmdEndRenderPass(cmd);
     vkEndCommandBuffer(cmd);
 
-    VkPipelineStageFlags wait = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    si.waitSemaphoreCount = 1, si.pWaitSemaphores = &acquired, si.pWaitDstStageMask = &wait;
-    si.commandBufferCount = 1, si.pCommandBuffers = &cmd;
-    si.signalSemaphoreCount = 1, si.pSignalSemaphores = &rendered[image];
-    CHECK(vkQueueSubmit(a.queue, 1, &si, done));
+    VkSemaphore signals[2] = {rendered[image], frameCount};
+    uint64_t values[2] = {0, uint64_t(frame) + 1}, zero64 = 0;
+    if (submit2) {
+      VkSemaphoreSubmitInfo w{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, nullptr, acquired, 0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0};
+      VkSemaphoreSubmitInfo s[2] = {{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, nullptr, signals[0], 0, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0},
+                                    {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, nullptr, signals[1], values[1], VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0}};
+      VkCommandBufferSubmitInfo c{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, nullptr, cmd, 0};
+      VkSubmitInfo2 si{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+      si.waitSemaphoreInfoCount = 1, si.pWaitSemaphoreInfos = &w;
+      si.commandBufferInfoCount = 1, si.pCommandBufferInfos = &c;
+      si.signalSemaphoreInfoCount = timeline ? 2 : 1, si.pSignalSemaphoreInfos = s;
+      CHECK(queueSubmit2(a.queue, 1, &si, done));
+    } else {
+      VkPipelineStageFlags wait = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+      VkTimelineSemaphoreSubmitInfo tl{VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+      tl.waitSemaphoreValueCount = 1, tl.pWaitSemaphoreValues = &zero64;
+      tl.signalSemaphoreValueCount = 2, tl.pSignalSemaphoreValues = values;
+      VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+      si.pNext = timeline ? &tl : nullptr;
+      si.waitSemaphoreCount = 1, si.pWaitSemaphores = &acquired, si.pWaitDstStageMask = &wait;
+      si.commandBufferCount = 1, si.pCommandBuffers = &cmd;
+      si.signalSemaphoreCount = timeline ? 2 : 1, si.pSignalSemaphores = signals;
+      CHECK(vkQueueSubmit(a.queue, 1, &si, done));
+    }
     VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     pi.waitSemaphoreCount = 1, pi.pWaitSemaphores = &rendered[image];
     pi.swapchainCount = 1, pi.pSwapchains = &swapchain, pi.pImageIndices = &image;
@@ -621,6 +656,11 @@ int main(int argc, char** argv) {
     if (pr != VK_SUCCESS && pr != VK_SUBOPTIMAL_KHR) std::fprintf(stderr, "present: %d\n", int(pr));
     CHECK(vkWaitForFences(a.device, 1, &done, VK_TRUE, UINT64_MAX));
     CHECK(vkResetFences(a.device, 1, &done));
+    if (timeline) {
+      uint64_t reached = 0;
+      vkGetSemaphoreCounterValue(a.device, frameCount, &reached);
+      if (reached != uint64_t(frame) + 1) std::fprintf(stderr, "timeline at %llu, expected %d\n", (unsigned long long)reached, frame + 1);
+    }
   }
   vkDeviceWaitIdle(a.device);
   std::printf("drew %d frames at %ux%u\n", frames, W, H);

@@ -79,8 +79,11 @@ Then learn from it as from any capture:
 
 `fh_scene` (`testapp/`) is a small Vulkan scene for trying the layer without a game. It draws a textured ground, a ring
 of turning cubes and spheres, and two glass boxes, to a headless swapchain (no window). Like a game engine, it
-re-records its command buffer every frame. `--indirect` draws everything with `vkCmdDrawIndexedIndirect`, and
-`--secondary` records the draws in a secondary command buffer.
+re-records its command buffer every frame. Options try the layer on what engines do differently:
+- `--indirect` draws everything with `vkCmdDrawIndexedIndirect`;
+- `--secondary` records the draws in a secondary command buffer;
+- `--submit2` submits with `vkQueueSubmit2`;
+- `--timeline` also signals a timeline semaphore every frame.
 
 ## Results so far
 
@@ -95,8 +98,7 @@ RESULTS_PLACEHOLDER
   - draws in secondary command buffers, with `FRAMEHOUND_SHADOW_ALL` (on capture frames they are broken like any
     other)
   - indirect draws with a count buffer (`vkCmdDrawIndirectCount`)
-  - `vkQueueSubmit2`
-  - submits with timeline semaphore values
+  - submits with anything in `pNext` other than timeline semaphore values
 
   Indirect draws can be broken in every way except `dropped_faces`, since the GPU reads their counts.
 - **State the GPU carries between frames.** Each copy is a full extra submit. Effects that keep history on the GPU,

@@ -21,8 +21,8 @@
 //   FRAMEHOUND_SHADOW_ALL=1  shadow every command buffer the app records, not just those of capture frames, for apps
 //                        that record their command buffers once and submit them every frame (vkcube does)
 //
-// Limits for now: frames are read from the swapchain image being presented; indirect draws with a count buffer and
-// vkQueueSubmit2 are passed through unbroken, and so are draws in secondary command buffers with FRAMEHOUND_SHADOW_ALL.
+// Limits for now: frames are read from the swapchain image being presented; indirect draws with a count buffer are
+// passed through unbroken, and so are draws in secondary command buffers with FRAMEHOUND_SHADOW_ALL.
 #include <vulkan/vk_layer.h>
 #include <vulkan/vulkan.h>
 #include <zlib.h>
@@ -163,7 +163,7 @@ struct Device {
   VkPhysicalDeviceMemoryProperties memory{};
   CmdTable cmd;
 #define FH_DEVICE_FUNCTIONS(X)                                                                                         \
-  X(DestroyDevice) X(GetDeviceQueue) X(QueueSubmit) X(QueueWaitIdle) X(QueuePresentKHR) X(CreateSwapchainKHR)          \
+  X(DestroyDevice) X(GetDeviceQueue) X(GetDeviceQueue2) X(QueueSubmit) X(QueueSubmit2) X(QueueWaitIdle) X(QueuePresentKHR) X(CreateSwapchainKHR)          \
   X(DestroySwapchainKHR) X(GetSwapchainImagesKHR) X(AcquireNextImageKHR) X(CreateGraphicsPipelines) X(DestroyPipeline) \
   X(AllocateCommandBuffers) X(FreeCommandBuffers) X(BeginCommandBuffer) X(EndCommandBuffer) X(ResetCommandBuffer)      \
   X(CreateCommandPool) X(DestroyCommandPool) X(ResetCommandPool) X(CreateFence) X(DestroyFence) X(WaitForFences)       \
@@ -748,12 +748,27 @@ VKAPI_ATTR void VKAPI_CALL fh_GetDeviceQueue(VkDevice device, uint32_t family, u
   d->queueFamily[*queue] = family;
 }
 
+VKAPI_ATTR void VKAPI_CALL fh_GetDeviceQueue2(VkDevice device, const VkDeviceQueueInfo2* info, VkQueue* queue) {
+  Device* d = DeviceOf(device);
+  d->GetDeviceQueue2(device, info, queue);
+  std::lock_guard<std::mutex> g(lock);
+  if (*queue) d->queueFamily[*queue] = info->queueFamilyIndex;
+}
+
 VKAPI_ATTR VkResult VKAPI_CALL fh_CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* info, const VkAllocationCallbacks* a, VkSwapchainKHR* sc) {
   Device* d = DeviceOf(device);
   VkSwapchainCreateInfoKHR ci = *info;
-  ci.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;  // so frames can be read back
+  if (config().active()) ci.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;  // so frames can be read back
   VkResult r = d->CreateSwapchainKHR(device, &ci, a, sc);
-  if (r == VK_SUCCESS) {
+  bool readable = config().active();
+  if (r != VK_SUCCESS && ci.imageUsage != info->imageUsage) {
+    // the surface won't allow it: carry on without reading this swapchain back
+    Log("this swapchain can't be read back (usage refused); no frames from it");
+    ci.imageUsage = info->imageUsage;
+    r = d->CreateSwapchainKHR(device, &ci, a, sc);
+    readable = false;
+  }
+  if (r == VK_SUCCESS && readable) {
     std::lock_guard<std::mutex> g(lock);
     Swapchain& s = d->swapchains[*sc];
     s.format = ci.imageFormat;
@@ -777,7 +792,8 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_GetSwapchainImagesKHR(VkDevice device, VkSwapc
   VkResult r = d->GetSwapchainImagesKHR(device, sc, count, images);
   if (images && (r == VK_SUCCESS || r == VK_INCOMPLETE)) {
     std::lock_guard<std::mutex> g(lock);
-    d->swapchains[sc].images.assign(images, images + *count);
+    auto it = d->swapchains.find(sc);  // only swapchains that can be read back are kept
+    if (it != d->swapchains.end()) it->second.images.assign(images, images + *count);
   }
   return r;
 }
@@ -787,7 +803,8 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_AcquireNextImageKHR(VkDevice device, VkSwapcha
   VkResult r = d->AcquireNextImageKHR(device, sc, timeout, sem, fence, index);
   if (r == VK_SUCCESS || r == VK_SUBOPTIMAL_KHR) {
     std::lock_guard<std::mutex> g(lock);
-    d->swapchains[sc].acquired = *index;
+    auto it = d->swapchains.find(sc);
+    if (it != d->swapchains.end()) it->second.acquired = *index;
     d->lastAcquired = sc;
   }
   return r;
@@ -1172,35 +1189,39 @@ void SaveCapture(Device* d, const Swapchain& sc, const std::vector<uint8_t>& cle
   Log("frame %llu: %zu broken copies, %d visible and kept", (unsigned long long)d->frame, broken.size(), kept);
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL fh_QueueSubmit(VkQueue queue, uint32_t n, const VkSubmitInfo* submits, VkFence fence) {
-  Device* d = DeviceOf(queue);
+// A submit in a form both vkQueueSubmit and vkQueueSubmit2 fit: the command buffers of each batch, and ways to submit
+// only the app's waits, other command buffers with no waits or signals, and the app's own work without its waits.
+struct SubmitOps {
+  std::vector<std::vector<VkCommandBuffer>> batches;
+  bool plain = true;  // nothing in it the layer doesn't know how to split
+  std::function<VkResult()> waitsOnly;
+  std::function<VkResult(const std::vector<std::vector<VkCommandBuffer>>&)> run;
+  std::function<VkResult()> ownWithoutWaits;
+  std::function<VkResult()> passThrough;
+};
+
+VkResult CaptureSubmit(Device* d, VkQueue queue, const SubmitOps& ops) {
   // which command buffers to swap for their shadows: those recorded this capture frame, or with shadow-all, the first
   // one that has shadows (so each copy has one broken draw)
-  bool plain = true;
   std::vector<Recording*> swap;
   bool local = false;
-  for (uint32_t i = 0; i < n; i++) {
-    if (submits[i].pNext) plain = false;  // timeline values and the like: not handled yet
-    for (uint32_t k = 0; k < submits[i].commandBufferCount; k++) {
-      Recording* r = RecordingOf(submits[i].pCommandBuffers[k]);
+  for (const auto& batch : ops.batches) {
+    for (VkCommandBuffer cb : batch) {
+      Recording* r = RecordingOf(cb);
       if (r->shadows.empty() || !d->capturing) continue;
       if (r->local && !local && swap.empty()) swap.push_back(r), local = true;
       else if (!r->local && r->shadowFrame == d->frame && !local) swap.push_back(r);
     }
   }
-  bool shadowed = !swap.empty();
   auto sc = d->swapchains.find(d->lastAcquired);
-  if (!shadowed || !plain || sc == d->swapchains.end() || sc->second.images.empty()) return d->QueueSubmit(queue, n, submits, fence);
+  if (swap.empty() || !ops.plain || sc == d->swapchains.end() || sc->second.images.empty()) return ops.passThrough();
 
   if (!d->fence) {
     VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     d->CreateFence(d->handle, &fi, nullptr, &d->fence);
   }
   // 1. wait for what the app's submit waits on (the acquired image), once
-  std::vector<VkSubmitInfo> waits(submits, submits + n);
-  for (auto& s : waits) s.commandBufferCount = 0, s.signalSemaphoreCount = 0;
-  d->QueueSubmit(queue, n, waits.data(), d->fence);
-  Wait(d);
+  if (ops.waitsOnly() == VK_SUCCESS) Wait(d);
   // 2. each broken copy, read back
   size_t copies = swap.front()->shadows.size();
   std::vector<Variant> used(copies);
@@ -1213,26 +1234,20 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_QueueSubmit(VkQueue queue, uint32_t n, const V
   }
   std::vector<std::vector<uint8_t>> broken(copies);
   for (size_t v = 0; v < copies; v++) {
-    std::vector<std::vector<VkCommandBuffer>> lists(n);
-    std::vector<VkSubmitInfo> runs(n);
-    for (uint32_t i = 0; i < n; i++) {
-      for (uint32_t k = 0; k < submits[i].commandBufferCount; k++) {
-        VkCommandBuffer cb = submits[i].pCommandBuffers[k];
+    if (!used[v].applied) continue;
+    std::vector<std::vector<VkCommandBuffer>> lists;
+    for (const auto& batch : ops.batches) {
+      lists.emplace_back();
+      for (VkCommandBuffer cb : batch) {
         Recording* r = RecordingOf(cb);
         bool swapped = std::find(swap.begin(), swap.end(), r) != swap.end();
-        lists[i].push_back(swapped && v < r->shadows.size() ? r->shadows[v] : cb);
+        lists.back().push_back(swapped && v < r->shadows.size() ? r->shadows[v] : cb);
       }
-      runs[i] = VkSubmitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-      runs[i].commandBufferCount = uint32_t(lists[i].size());
-      runs[i].pCommandBuffers = lists[i].data();
     }
-    if (used[v].applied && d->QueueSubmit(queue, n, runs.data(), d->fence) == VK_SUCCESS && Wait(d))
-      ReadImage(d, queue, sc->second, broken[v]);
+    if (ops.run(lists) == VK_SUCCESS && Wait(d)) ReadImage(d, queue, sc->second, broken[v]);
   }
   // 3. the app's own commands, without the waits already done, then the clean frame
-  std::vector<VkSubmitInfo> own(submits, submits + n);
-  for (auto& s : own) s.waitSemaphoreCount = 0, s.pWaitSemaphores = nullptr, s.pWaitDstStageMask = nullptr;
-  VkResult r = d->QueueSubmit(queue, n, own.data(), fence);
+  VkResult r = ops.ownWithoutWaits();
   std::vector<uint8_t> clean;
   if (r == VK_SUCCESS && d->QueueWaitIdle(queue) == VK_SUCCESS && ReadImage(d, queue, sc->second, clean)) {
     SaveCapture(d, sc->second, clean, broken, used);
@@ -1240,6 +1255,85 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_QueueSubmit(VkQueue queue, uint32_t n, const V
   }
   d->capturing = false;
   return r;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL fh_QueueSubmit(VkQueue queue, uint32_t n, const VkSubmitInfo* submits, VkFence fence) {
+  Device* d = DeviceOf(queue);
+  SubmitOps ops;
+  // timeline semaphore values are split along with the waits and signals; anything else in pNext isn't handled yet
+  std::vector<const VkTimelineSemaphoreSubmitInfo*> timeline(n, nullptr);
+  for (uint32_t i = 0; i < n; i++) {
+    ops.batches.emplace_back(submits[i].pCommandBuffers, submits[i].pCommandBuffers + submits[i].commandBufferCount);
+    for (auto* p = static_cast<const VkBaseInStructure*>(submits[i].pNext); p; p = p->pNext) {
+      if (p->sType == VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO) timeline[i] = reinterpret_cast<const VkTimelineSemaphoreSubmitInfo*>(p);
+      else ops.plain = false;
+    }
+    if (timeline[i] && timeline[i]->pNext) ops.plain = false;
+  }
+  ops.passThrough = [&] { return d->QueueSubmit(queue, n, submits, fence); };
+  ops.waitsOnly = [&] {
+    std::vector<VkSubmitInfo> s(submits, submits + n);
+    std::vector<VkTimelineSemaphoreSubmitInfo> tl(n);
+    for (uint32_t i = 0; i < n; i++) {
+      s[i].commandBufferCount = 0, s[i].signalSemaphoreCount = 0, s[i].pSignalSemaphores = nullptr;
+      if (timeline[i]) {
+        tl[i] = *timeline[i];
+        tl[i].signalSemaphoreValueCount = 0, tl[i].pSignalSemaphoreValues = nullptr;
+        s[i].pNext = &tl[i];
+      }
+    }
+    return d->QueueSubmit(queue, n, s.data(), d->fence);
+  };
+  ops.run = [&](const std::vector<std::vector<VkCommandBuffer>>& lists) {
+    std::vector<VkSubmitInfo> s(lists.size(), VkSubmitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO});
+    for (size_t i = 0; i < lists.size(); i++) s[i].commandBufferCount = uint32_t(lists[i].size()), s[i].pCommandBuffers = lists[i].data();
+    return d->QueueSubmit(queue, uint32_t(s.size()), s.data(), d->fence);
+  };
+  ops.ownWithoutWaits = [&] {
+    std::vector<VkSubmitInfo> s(submits, submits + n);
+    std::vector<VkTimelineSemaphoreSubmitInfo> tl(n);
+    for (uint32_t i = 0; i < n; i++) {
+      s[i].waitSemaphoreCount = 0, s[i].pWaitSemaphores = nullptr, s[i].pWaitDstStageMask = nullptr;
+      if (timeline[i]) {
+        tl[i] = *timeline[i];
+        tl[i].waitSemaphoreValueCount = 0, tl[i].pWaitSemaphoreValues = nullptr;
+        s[i].pNext = &tl[i];
+      }
+    }
+    return d->QueueSubmit(queue, n, s.data(), fence);
+  };
+  return CaptureSubmit(d, queue, ops);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL fh_QueueSubmit2(VkQueue queue, uint32_t n, const VkSubmitInfo2* submits, VkFence fence) {
+  Device* d = DeviceOf(queue);
+  SubmitOps ops;
+  for (uint32_t i = 0; i < n; i++) {
+    ops.batches.emplace_back();
+    for (uint32_t k = 0; k < submits[i].commandBufferInfoCount; k++) ops.batches.back().push_back(submits[i].pCommandBufferInfos[k].commandBuffer);
+    if (submits[i].pNext || submits[i].flags) ops.plain = false;
+  }
+  ops.passThrough = [&] { return d->QueueSubmit2(queue, n, submits, fence); };
+  ops.waitsOnly = [&] {
+    std::vector<VkSubmitInfo2> s(submits, submits + n);
+    for (auto& x : s) x.commandBufferInfoCount = 0, x.signalSemaphoreInfoCount = 0;
+    return d->QueueSubmit2(queue, n, s.data(), d->fence);
+  };
+  ops.run = [&](const std::vector<std::vector<VkCommandBuffer>>& lists) {
+    std::vector<std::vector<VkCommandBufferSubmitInfo>> infos(lists.size());
+    std::vector<VkSubmitInfo2> s(lists.size(), VkSubmitInfo2{VK_STRUCTURE_TYPE_SUBMIT_INFO_2});
+    for (size_t i = 0; i < lists.size(); i++) {
+      for (VkCommandBuffer cb : lists[i]) infos[i].push_back(VkCommandBufferSubmitInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, nullptr, cb, 0});
+      s[i].commandBufferInfoCount = uint32_t(infos[i].size()), s[i].pCommandBufferInfos = infos[i].data();
+    }
+    return d->QueueSubmit2(queue, uint32_t(s.size()), s.data(), d->fence);
+  };
+  ops.ownWithoutWaits = [&] {
+    std::vector<VkSubmitInfo2> s(submits, submits + n);
+    for (auto& x : s) x.waitSemaphoreInfoCount = 0, x.pWaitSemaphoreInfos = nullptr;
+    return d->QueueSubmit2(queue, n, s.data(), fence);
+  };
+  return CaptureSubmit(d, queue, ops);
 }
 
 VKAPI_ATTR void VKAPI_CALL fh_DestroyDevice(VkDevice device, const VkAllocationCallbacks* a) {
@@ -1309,6 +1403,7 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_CreateDevice(VkPhysicalDevice phys, const VkDe
   d->nextSeed = config().seed * 100000u + 1;
 #define FH_LOAD(name) d->name = (PFN_vk##name)gdpa(*device, "vk" #name);
   FH_DEVICE_FUNCTIONS(FH_LOAD)
+  if (!d->QueueSubmit2) d->QueueSubmit2 = (PFN_vkQueueSubmit2)gdpa(*device, "vkQueueSubmit2KHR");
   LoadCmdTable(d->cmd, gdpa, *device);
   if (inst && inst->GetPhysicalDeviceMemoryProperties) inst->GetPhysicalDeviceMemoryProperties(phys, &d->memory);
   std::lock_guard<std::mutex> g(lock);
@@ -1351,9 +1446,10 @@ VKAPI_ATTR void VKAPI_CALL fh_DestroyInstance(VkInstance instance, const VkAlloc
 PFN_vkVoidFunction DeviceFunction(const char* name) {
 #define FH_HOOK(n) \
   if (!strcmp(name, "vk" #n)) return (PFN_vkVoidFunction)fh_##n;
-  FH_HOOK(GetDeviceProcAddr) FH_HOOK(DestroyDevice) FH_HOOK(GetDeviceQueue) FH_HOOK(CreateSwapchainKHR)
+  FH_HOOK(GetDeviceProcAddr) FH_HOOK(DestroyDevice) FH_HOOK(GetDeviceQueue) FH_HOOK(GetDeviceQueue2) FH_HOOK(CreateSwapchainKHR)
   FH_HOOK(DestroySwapchainKHR) FH_HOOK(GetSwapchainImagesKHR) FH_HOOK(AcquireNextImageKHR) FH_HOOK(QueuePresentKHR)
-  FH_HOOK(QueueSubmit) FH_HOOK(CreateGraphicsPipelines) FH_HOOK(DestroyPipeline) FH_HOOK(AllocateCommandBuffers)
+  FH_HOOK(QueueSubmit) FH_HOOK(QueueSubmit2) FH_HOOK(CreateGraphicsPipelines)
+  if (!strcmp(name, "vkQueueSubmit2KHR")) return (PFN_vkVoidFunction)fh_QueueSubmit2; FH_HOOK(DestroyPipeline) FH_HOOK(AllocateCommandBuffers)
   FH_HOOK(FreeCommandBuffers) FH_HOOK(DestroyCommandPool) FH_HOOK(ResetCommandPool) FH_HOOK(ResetCommandBuffer)
   FH_HOOK(BeginCommandBuffer) FH_HOOK(EndCommandBuffer) FH_HOOK(CmdBindPipeline) FH_HOOK(CmdDraw)
   FH_HOOK(CmdDrawIndexed) FH_HOOK(CmdExecuteCommands) FH_HOOK(CreateDescriptorSetLayout) FH_HOOK(AllocateDescriptorSets)
