@@ -89,6 +89,29 @@ re-records its command buffer every frame. Options try the layer on what engines
 - `--submit2` submits with `vkQueueSubmit2`;
 - `--timeline` also signals a timeline semaphore every frame.
 
+## Recorded sessions
+
+The layer also works on replays from [GFXReconstruct](https://github.com/LunarG/gfxreconstruct), LunarG's capture
+and replay tool, which ships with the Vulkan SDK. A session recorded once can be broken as many times as wanted,
+without the app:
+
+```bash
+# record 120 frames of the app (any Vulkan app; the GFXReconstruct layer comes with the SDK)
+VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_gfxreconstruct GFXRECON_CAPTURE_FILE=scene.gfxr \
+  GFXRECON_CAPTURE_FILE_TIMESTAMP=false native/build/fh_scene --frames 120
+
+# replay it with the framehound layer; another FRAMEHOUND_SEED breaks other draws on the same frames
+FRAMEHOUND_OUT=data/scene-replay FRAMEHOUND_START=10 FRAMEHOUND_EVERY=20 \
+  VK_ADD_LAYER_PATH=native/build VK_INSTANCE_LAYERS=VK_LAYER_FRAMEHOUND_glitch \
+  gfxrecon-replay --swapchain captured scene.gfxr
+```
+
+`--swapchain captured` matters. By default, the replay draws into its own images and copies them to the swapchain
+only when presenting, so the layer would read the previous frame back. On the test scene:
+- the recording is 820 KB for 120 frames;
+- the replay's clean frames match the live run's pixel for pixel;
+- two replays with different seeds shared 1 of 26 broken frames.
+
 ## Results so far
 
 **On the test scene** (`fh_scene` at 768×432, through MoltenVK on an Apple M4 Pro):

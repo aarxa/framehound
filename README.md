@@ -120,7 +120,9 @@ To measure naming, watch played HexGL four times for 12 minutes and broke a know
 far. On a small Vulkan test scene it wrote 825 visible broken frames from 140 captured frames in about ten seconds,
 where the browser takes minutes. A model trained on the first 80% of those frames scores AUROC 0.93 on the rest. The
 Khronos validation layer finds no errors added by the layer. It also runs on vkcube, Khronos's Vulkan sample, in a
-real window, though vkcube records its command buffers once and reuses them. See [native/README.md](native/README.md).
+real window, though vkcube records its command buffers once and reuses them. It also works on GFXReconstruct
+replays, which come out pixel for pixel like the live run, so a session recorded once can be broken again and again
+without the app. See [native/README.md](native/README.md).
 
 **What doesn't work: one model for every app.** framehound started as a single model meant to spot glitches in any
 game's screenshot. It doesn't get there:
