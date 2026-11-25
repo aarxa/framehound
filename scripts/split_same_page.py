@@ -10,6 +10,7 @@ changed by more than 12/255 between clean frames, averaged over the validation m
 barely moved is a much easier test.
 
     .venv/bin/python -I scripts/split_same_page.py data/gl-v1 data/gl-v1-samepage [--last-share 0.2]
+        [--app hexgl] [--first-share 0.5] [--all-val]
 """
 import argparse
 import collections
@@ -27,24 +28,33 @@ def main():
     ap.add_argument("src")
     ap.add_argument("dst")
     ap.add_argument("--last-share", type=float, default=0, help="share of each page's moments to test on (0: the last one)")
+    ap.add_argument("--app", default=None, help="keep only this page")
+    ap.add_argument("--first-share", type=float, default=1.0, help="keep only the first share of each page's moments")
+    ap.add_argument("--all-val", action="store_true", help="put every sample in validation (a test-only dataset)")
     args = ap.parse_args()
     src, dst = Path(args.src), Path(args.dst)
     dst.mkdir(parents=True, exist_ok=True)
     rows = [json.loads(line) for line in (src / "manifest.jsonl").read_text().splitlines() if line]
+    if args.app:
+        rows = [r for r in rows if r["app"] == args.app]
     moments = collections.defaultdict(set)
     for r in rows:
         moments[r["app"]].add(r["moment"])
+    for app in moments:  # with --first-share, later moments are dropped before splitting
+        ms = sorted(moments[app])
+        moments[app] = set(ms[: max(1, math.ceil(len(ms) * args.first_share))])
+    rows = [r for r in rows if r["moment"] in moments[r["app"]]]
     test = {}
     for app, ms in moments.items():
         ms = sorted(ms)
         k = max(1, math.ceil(len(ms) * args.last_share)) if len(ms) > 1 else 0
-        test[app] = set(ms[len(ms) - k:]) if k else set()
+        test[app] = set(ms) if args.all_val else set(ms[len(ms) - k:]) if k else set()
     rel = os.path.relpath(src, dst)
     out = [{**r, "split": "val" if r["moment"] in test[r["app"]] else "train",
             "files": {k: f"{rel}/{v}" for k, v in r["files"].items()}} for r in rows]
     view_change = {}
     for app, ms in moments.items():
-        if not test[app]:
+        if not test[app] or args.all_val:
             continue
         load = lambda m: np.asarray(Image.open(src / f"clean/{app}/{m}.png").convert("RGB"), dtype=np.int16)
         train = [load(m) for m in sorted(ms - test[app])]
@@ -61,8 +71,9 @@ def main():
         "view_change": view_change}, indent=1))
     split = collections.Counter(r["split"] for r in out)
     changed = sum(v > 0.2 for v in view_change.values())
-    print(f"{dict(split)}; {len(view_change)} pages tested on new moments, {changed} of them with views that changed "
-          f"on more than 20% of pixels; median change {np.median(list(view_change.values())):.3f}")
+    print(f"{dict(split)} from {sum(len(m) for m in moments.values())} moments; {len(view_change)} pages tested on new moments, "
+          f"{changed} of them with views that changed on more than 20% of pixels"
+          + (f"; median change {np.median(list(view_change.values())):.3f}" if view_change else ""))
     for app, v in sorted(view_change.items(), key=lambda kv: -kv[1])[:10]:
         print(f"   {app}: view change {v}")
 

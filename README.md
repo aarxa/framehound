@@ -5,7 +5,7 @@ Finds rendering glitches in screenshots of a WebGL game or app, after learning w
 You point it at the app. It plays the app in headless Chrome, freezes it at moments along the way, and redraws each
 frame with one draw call broken: a texture that never loaded, a part that never got drawn, garbage vertices, lost
 texture coordinates and so on. The frame is drawn once clean and once broken, so the broken pixels are known exactly.
-After about ten minutes of this it has a few thousand labelled frames of the app's own content, and trains a detector
+After about ten minutes of this it has around a thousand labelled frames of the app's own content, and trains a detector
 on them. Then it checks new screenshots of the app.
 
 It works with any WebGL engine and doesn't need the app's source: it wraps WebGL in the page.
@@ -17,16 +17,37 @@ truly broken pixels (red) and what the model flagged (cyan). Rows with red text 
 
 ## Results
 
-**On two real games**, each played for 150 moments: a model trained on the first 80% of the moments and tested on the
-last 20%. The test views differ from the nearest training view on about half their pixels.
+**On two real games.** Each game was played twice. The model learns from the first session and is tested on the
+second, a separate play-through it never saw:
 
-| AUROC on later play (0.5 = chance) | Trained on other apps only | Trained on the game's earlier play | Glitches caught when 5% of clean frames are flagged |
+| Game | Test session | Glitch frames | Clean frames |
 |---|---|---|---|
-| [HexGL](https://github.com/BKcore/HexGL), a racing game | 0.58 | **0.93** (95% CI 0.89–0.96) | 80% |
-| [Edelweiss](https://github.com/felixmariotto/Edelweiss), a platformer | 0.56 | **0.81** (0.71–0.89) | 34% |
+| [HexGL](https://github.com/BKcore/HexGL), a racing game | a new race on the same track | 487 | 150 |
+| [Edelweiss](https://github.com/felixmariotto/Edelweiss), a platformer | a new walk from the same start | 198 | 111 |
 
-On HexGL it catches every missing draw, 93% of missing textures, 91% of lost texture coordinates and 82% of NaN colours
-at that setting. Edelweiss is darker and blockier, and its glitches are often small.
+The best training epoch is picked on a held-out slice of the first session, so the test session is only used for the
+final score.
+
+| AUROC on the test session (0.5 = chance) | Never saw the game | 2.5 min of play | 5 min | 10 min |
+|---|---|---|---|---|
+| HexGL | 0.55 | 0.78 | 0.81 | **0.90** (95% CI 0.88–0.93) |
+| Edelweiss | 0.54 | 0.89 | **0.95** (0.93–0.98) | 0.94 (0.91–0.97) |
+
+| Glitches caught when 5% of clean frames are flagged | 2.5 min | 5 min | 10 min |
+|---|---|---|---|
+| HexGL | 18% | 24% | **70%** |
+| Edelweiss | 71% | **88%** | 58% |
+
+HexGL keeps improving with more play: a race shows a lot of different track, and ten minutes hasn't levelled off yet.
+Edelweiss levels off by five minutes. Its test walk starts in the same village as the training walk, which makes it
+an easier test. The difference between its 5- and 10-minute models is within the spread between training runs.
+
+With ten minutes of HexGL, at that setting it catches:
+- 92% of lost texture coordinates
+- 89% of missing textures
+- 80% of NaN colours
+
+It catches fewer than half of exploded vertices and inside-out meshes.
 
 **On three.js examples** the same holds: on five pages never trained on, a model trained on 145 other pages scores 0.67;
 models trained on each page's own earlier frames score 0.89–0.93.
@@ -47,7 +68,7 @@ bugs into each game it tested.
 **Caveats.**
 - The test glitches are injected, not taken from the games' bug histories. They are real failure modes of real
   renderers, but they are ours.
-- Each result is one training run, with about 30 clean test frames per game.
+- Each result is one training run; two runs on the same data can differ by a few points.
 - HexGL's laps revisit the same track. That's fair for a tool that learns one game, but easier than a game whose
   content never repeats.
 
