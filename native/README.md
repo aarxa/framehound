@@ -1,5 +1,7 @@
 # framehound's Vulkan layer
 
+[![native](https://github.com/aarxa/framehound/actions/workflows/native.yml/badge.svg)](https://github.com/aarxa/framehound/actions/workflows/native.yml)
+
 This is the native version of the WebGL injector, `generator/inject/glitch-gl.js`. It's a Vulkan layer that the
 Vulkan loader puts into any Vulkan app. It writes the app's own frames twice, once clean and once with one draw call
 broken, along with the exact mask of the broken pixels. The output has the same layout as the WebGL capture, so
@@ -50,9 +52,11 @@ brew install molten-vk vulkan-loader vulkan-headers vulkan-tools glslang cmake
 cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release && cmake --build native/build
 ```
 
-On Linux and Windows, the Vulkan SDK (or the distribution's Vulkan headers, loader and glslang) and zlib should be
-enough. The build writes the layer's manifest next to the library, with the library's name on that platform. It has
-only been built on a Mac so far.
+On Linux, the distribution's Vulkan headers, loader and glslang, plus zlib, are enough. Every push that touches
+`native/` builds the layer on Ubuntu 24.04 and runs `native/check.sh` on Mesa's software Vulkan driver (lavapipe):
+capture in each of the scene's modes, under the Khronos validation layer. On Windows, the Vulkan SDK should do, but
+it hasn't been tried. The build writes the layer's manifest next to the library, with the library's name on that
+platform.
 
 Run any Vulkan app with the layer on:
 

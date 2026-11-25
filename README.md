@@ -26,7 +26,7 @@ What it does so far:
 - **Names the right draw.** When the broken draw draws to the frame itself, watch names it first 71% of the time on
   HexGL and 90% on Edelweiss.
 - **Works natively too.** The C++ Vulkan layer breaks draws in native Vulkan apps the same way, and works on replays
-  of recorded sessions.
+  of recorded sessions. It's built and checked on macOS, and on Linux in CI.
 
 ![Test frames from later in the play sessions, never trained on: frame, the truly broken pixels (red), what the model flagged (cyan)](docs/games-predictions.jpg)
 
