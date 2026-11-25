@@ -12,6 +12,7 @@ on:
 jobs:
   linux:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Install Vulkan headers, loader, lavapipe, validation layer and glslang
@@ -23,5 +24,15 @@ jobs:
         run: vulkaninfo --summary
       - name: Build
         run: cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release && cmake --build native/build -j
+      - name: Run the test scene alone
+        timeout-minutes: 5
+        run: native/build/fh_scene --frames 20
+      - name: Run it with the layer capturing
+        timeout-minutes: 5
+        run: |
+          VK_ADD_LAYER_PATH=native/build VK_INSTANCE_LAYERS=VK_LAYER_FRAMEHOUND_glitch FRAMEHOUND_OUT=out \
+            FRAMEHOUND_START=5 FRAMEHOUND_EVERY=5 FRAMEHOUND_CAPTURES=2 native/build/fh_scene --frames 20
+          wc -l out/manifest.jsonl
       - name: Capture in every mode, under the validation layer
+        timeout-minutes: 20
         run: native/check.sh native/build
