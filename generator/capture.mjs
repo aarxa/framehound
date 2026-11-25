@@ -8,12 +8,12 @@
 //        [--warmup 6] [--gap 3] [--workers 4] [--serve sources/threejs-r170] [--types missing_texture,inside_out]
 //        [--width 768 --height 432] [--min-strong 0.001] [--app-timeout 180]
 //
-// The apps file has one page per line: "<id> <url>" (lines starting with # are skipped). A url starting with "/" is
+// The apps file has one page per line: "<id> <url> [driver.mjs]" (lines starting with # are skipped). A url starting with "/" is
 // served from the --serve folder on a local server.
 import { createServer } from 'node:http';
 import { readFile, mkdir, writeFile, appendFile, rm } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -59,9 +59,9 @@ if (args.serve) {
 const apps = (await readFile(join(root, args.apps ?? 'generator/apps/test.txt'), 'utf8'))
   .split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'))
   .map((l) => {
-    const [id, url] = l.split(/\s+/);
+    const [id, url, driver] = l.split(/\s+/);
     if (url.startsWith('/') && !base) throw new Error(`${id}: a local page needs --serve`);
-    return { id, url: url.startsWith('/') ? base + url : url };
+    return { id, url: url.startsWith('/') ? base + url : url, driver };
   });
 
 const hash = (s) => [...s].reduce((h, c) => (Math.imul(h ^ c.charCodeAt(0), 2654435761) >>> 0), 2166136261);
@@ -84,9 +84,12 @@ const t0 = Date.now();
 let done = 0;
 
 async function capture(app, page, report, split) {
+  // a game's driver gets it past its menus and plays it between moments; other pages get a camera drag
+  const driver = app.driver ? await import(pathToFileURL(join(root, app.driver)).href) : null;
   await page.addInitScript({ path: injector });
   await page.goto(app.url, { waitUntil: 'load', timeout: 60000 });
   await sleep(warmup);
+  if (driver?.start) await driver.start(page);
   const status = await page.evaluate(([w, h]) => {
     window.__fh.setSize(w, h);
     return window.__fh.status();
@@ -98,7 +101,10 @@ async function capture(app, page, report, split) {
   report.webgl2 = status.webgl2;
 
   for (let m = 0; m < moments; m++) {
-    if (m > 0) {
+    if (m > 0 && driver?.between) {
+      await page.evaluate(() => window.__fh.unfreeze());
+      await driver.between(page, gap);
+    } else if (m > 0) {
       // let the page run on, and nudge the camera the way a player would
       await page.evaluate(() => window.__fh.unfreeze());
       const [x, y] = [640 + (Math.random() - 0.5) * 400, 360 + (Math.random() - 0.5) * 240];
@@ -111,7 +117,9 @@ async function capture(app, page, report, split) {
     await page.evaluate(() => window.__fh.freeze());
     await sleep(0.2); // frame callbacks already queued with the browser run once more, then land in our queue
     const settled = await page.evaluate(() => window.__fh.settle());
-    report.moments.push(settled.ok ? `${settled.steps} steps, ${settled.draws} draws` : settled.reason);
+    report.moments.push(settled.ok
+      ? `${settled.replay ? `replayed ${settled.calls} calls` : `${settled.steps} steps`}, ${settled.draws} draws`
+      : `${settled.reason}${settled.replay_problem ? ` (replay: ${settled.replay_problem})` : ''}`);
     if (!settled.ok) {
       if (settled.reason.includes('requestAnimationFrame')) break;
       continue;
@@ -132,7 +140,7 @@ async function capture(app, page, report, split) {
       const files = { clean: cleanFile, glitched: `glitched/${type}/${pad(id)}.png`, mask: `masks/${type}/${pad(id)}.png` };
       await Promise.all([save(files.glitched, s.glitched), save(files.mask, s.mask)]);
       const { glitched, mask, ok, ...meta } = s;
-      await appendFile(manifest, JSON.stringify({ seed: id, app: app.id, moment: m, glitch: type, ...meta, split, files }) + '\n');
+      await appendFile(manifest, JSON.stringify({ seed: id, app: app.id, moment: m, glitch: type, ...meta, held: settled.replay ? 'replay' : 'steps', split, files }) + '\n');
       stats.written++;
       report.written++;
       stats.byType[type] = (stats.byType[type] ?? 0) + 1;

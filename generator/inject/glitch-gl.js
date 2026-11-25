@@ -8,7 +8,7 @@
 //     a draw that never happened, corrupt vertex or index data, lost or squashed texture coordinates, flipped
 //     culling, a depth test left off, a blend left on, a NaN colour.
 // Every piece of GL state a glitch touches is put back right after the broken draw, so the next frame is clean again.
-// The glitches that read buffers need WebGL 2 (three.js, Babylon.js and PlayCanvas all use it).
+// Glitches that read vertex or index data use WebGL 2 readback, or on WebGL 1 a copy kept as the page uploads it.
 (() => {
   if (window.__fh) return;
 
@@ -19,13 +19,22 @@
   const realDateNow = Date.now.bind(Date);
   const realRandom = Math.random.bind(Math);
   const FAKE_IDS = 1e9;
+  // The page's clock stops while frozen, and the time spent frozen is taken out afterwards, as if the page had been
+  // paused: otherwise a game sees one huge time step when it resumes and its physics jump.
   let frozen = false;
   let frozenNow = 0;
   let frozenDate = 0;
+  let pausedPerf = 0; // total time spent frozen, on each clock
+  let pausedDate = 0;
+  let frozeAtPerf = 0;
+  let frozeAtDate = 0;
+  const pageNow = () => (frozen ? frozenNow : realNow() - pausedPerf);
+  const pageDate = () => (frozen ? frozenDate : realDateNow() - pausedDate);
   let queue = [];
   let nextId = FAKE_IDS;
+  const shifted = (cb) => (t) => cb(t - pausedPerf); // frame callbacks get the page's time too
   window.requestAnimationFrame = (cb) => {
-    if (!frozen) return realRAF(cb);
+    if (!frozen) return realRAF(shifted(cb));
     queue.push({ id: nextId, cb });
     return nextId++;
   };
@@ -33,8 +42,18 @@
     if (id >= FAKE_IDS) queue = queue.filter((e) => e.id !== id);
     else realCancel(id);
   };
-  performance.now = () => (frozen ? frozenNow : realNow());
-  Date.now = () => (frozen ? frozenDate : realDateNow());
+  performance.now = pageNow;
+  // `new Date()` reads the clock too (older games time themselves with new Date().getTime()), so Date is wrapped
+  const RealDate = Date;
+  function FrozenDate(...a) {
+    if (!new.target) return RealDate(); // Date() called as a function gives a string
+    return a.length === 0 ? new RealDate(pageDate()) : new RealDate(...a);
+  }
+  FrozenDate.prototype = RealDate.prototype;
+  FrozenDate.now = pageDate;
+  FrozenDate.parse = RealDate.parse;
+  FrozenDate.UTC = RealDate.UTC;
+  window.Date = FrozenDate;
 
   const mulberry = (s) => () => {
     s = (s + 0x6d2b79f5) | 0;
@@ -55,6 +74,32 @@
     return gl;
   };
   const isGL2 = (gl) => typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+
+  // WebGL 1 can't read a buffer back, so keep a copy of what each buffer was given (WebGL 2 reads it directly).
+  const shadows = new WeakMap();
+  if (window.WebGLRenderingContext) {
+    const proto = WebGLRenderingContext.prototype;
+    const realBufferData = proto.bufferData;
+    const realBufferSubData = proto.bufferSubData;
+    const bound = (gl, target) => gl.getParameter(target === gl.ELEMENT_ARRAY_BUFFER ? gl.ELEMENT_ARRAY_BUFFER_BINDING : gl.ARRAY_BUFFER_BINDING);
+    const bytesOf = (data) => (data instanceof ArrayBuffer ? new Uint8Array(data)
+      : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : null);
+    proto.bufferData = function (target, data, usage) {
+      const buf = bound(this, target);
+      if (buf) {
+        const b = typeof data === 'number' ? new Uint8Array(data) : bytesOf(data);
+        if (b) shadows.set(buf, typeof data === 'number' ? b : b.slice());
+      }
+      return realBufferData.call(this, target, data, usage);
+    };
+    proto.bufferSubData = function (target, offset, data) {
+      const buf = bound(this, target);
+      const copy = buf && shadows.get(buf);
+      const b = bytesOf(data);
+      if (copy && b && offset + b.length <= copy.length) copy.set(b, offset);
+      return realBufferSubData.call(this, target, offset, data);
+    };
+  }
 
   // ---- what each shader program reads ---------------------------------------------------------------------------
   const programs = new WeakMap();
@@ -112,43 +157,120 @@
     const out = [];
     const scene = p.count > 6 && isTriangles(gl, p.mode); // leaves out full-screen passes, sprites and lines
     if (!scene || !info) return out;
-    const gl2 = isGL2(gl);
     out.push('missing_draw', 'inside_out');
     if (state.depth) out.push('depth_test_off');
     if (!state.blend) out.push('additive_blend');
     if (info.baseSampler) out.push('missing_texture');
     if (info.baseSampler && info.uv) out.push('lost_uvs');
-    if (info.baseSampler && info.uv && gl2) out.push('stretched_uvs');
-    if (info.position && gl2) out.push('exploded_vertices');
-    if (p.type !== undefined && p.mode === gl.TRIANGLES && gl2) out.push('broken_indices');
+    // these read vertex or index data: WebGL 2 reads the buffer, WebGL 1 uses the copy kept at upload
+    if (info.baseSampler && info.uv) out.push('stretched_uvs');
+    if (info.position) out.push('exploded_vertices');
+    if (p.type !== undefined && p.mode === gl.TRIANGLES) out.push('broken_indices');
     if (info.color) out.push('nan_color');
     return out;
   }
 
-  let mode = 'off'; // 'record' while stepping a clean frame, 'glitch' while stepping a broken one
+  // mode: 'record' while stepping a clean frame, 'glitch' while stepping a broken one, 'replay' while replaying one
+  let mode = 'off';
+  let capturing = false; // in record mode, also keep every GL call of the frame so it can be replayed
+  let frame = [];
   let drawIndex = 0;
   let draws = [];
   let armed = null;
   let applied = null;
-  const DRAWS = ['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced', 'drawRangeElements'];
-  for (const Ctx of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
-    if (!Ctx) continue;
-    for (const name of DRAWS) {
-      const orig = Ctx.prototype[name];
-      if (!orig) continue;
-      Ctx.prototype[name] = function (...args) {
-        if (mode === 'off') return orig.apply(this, args);
+  const DRAWS = new Set(['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced', 'drawRangeElements']);
+  const NOT_REPLAYED = /^(get|is|check)|^(readPixels|finish|flush|getExtension|getContextAttributes)$/;
+
+  // A call's arguments as they were at the time: the page reuses and changes its arrays (matrices, vertex data) and
+  // its canvases and videos after the call, so they are copied.
+  function snap(a) {
+    if (a === null || typeof a !== 'object') return a;
+    if (a instanceof DataView) return new DataView(a.buffer.slice(a.byteOffset, a.byteOffset + a.byteLength));
+    if (ArrayBuffer.isView(a)) return a.slice();
+    if (a instanceof ArrayBuffer) return a.slice(0);
+    if (Array.isArray(a)) return a.slice();
+    if (a instanceof ImageData) return new ImageData(new Uint8ClampedArray(a.data), a.width, a.height);
+    const live = a instanceof HTMLCanvasElement || a instanceof HTMLVideoElement
+      || (typeof OffscreenCanvas !== 'undefined' && a instanceof OffscreenCanvas) || (typeof ImageBitmap !== 'undefined' && a instanceof ImageBitmap);
+    if (live) {
+      const c = document.createElement('canvas');
+      c.width = a.videoWidth || a.width;
+      c.height = a.videoHeight || a.height;
+      if (c.width && c.height) c.getContext('2d').drawImage(a, 0, 0);
+      return c;
+    }
+    return a; // GL objects, uniform locations, images
+  }
+
+  function describeDraw(gl, name, args, k) {
+    const p = drawParams(name, args);
+    const info = programInfo(gl, gl.getParameter(gl.CURRENT_PROGRAM));
+    const state = { depth: gl.isEnabled(gl.DEPTH_TEST), blend: gl.isEnabled(gl.BLEND) };
+    return { index: k, gl, name, count: p.count, program: info?.id ?? 0, eligible: eligible(gl, info, p, state) };
+  }
+
+  function wrap(name, orig, isDraw) {
+    return function (...args) {
+      if (mode === 'off' || mode === 'replay') return orig.apply(this, args);
+      if (isDraw) {
         const k = drawIndex++;
         if (mode === 'glitch') {
           if (armed && armed.draw === k) return glitchDraw(this, name, orig, args);
           return orig.apply(this, args);
         }
-        const p = drawParams(name, args);
-        const info = programInfo(this, this.getParameter(this.CURRENT_PROGRAM));
-        const state = { depth: this.isEnabled(this.DEPTH_TEST), blend: this.isEnabled(this.BLEND) };
-        draws.push({ index: k, gl: this, name, count: p.count, program: info?.id ?? 0, eligible: eligible(this, info, p, state) });
+        draws.push(describeDraw(this, name, args, k));
+        if (capturing) frame.push({ target: this, fn: orig, args: args.map(snap), name, draw: k });
         return orig.apply(this, args);
-      };
+      }
+      if (!capturing || NOT_REPLAYED.test(name)) return orig.apply(this, args);
+      const entry = { target: this, fn: orig, args: args.map(snap), name };
+      frame.push(entry);
+      const r = orig.apply(this, args);
+      if (name.startsWith('create') && r && typeof r === 'object') entry.created = r;
+      return r;
+    };
+  }
+  for (const Ctx of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
+    if (!Ctx) continue;
+    for (const name of Object.getOwnPropertyNames(Ctx.prototype)) {
+      const d = Object.getOwnPropertyDescriptor(Ctx.prototype, name);
+      if (!d || typeof d.value !== 'function' || name === 'constructor') continue;
+      Ctx.prototype[name] = wrap(name, d.value, DRAWS.has(name));
+    }
+    // extension functions (instanced drawing, vertex array objects in WebGL 1) are part of the frame too
+    const getExtension = Ctx.prototype.getExtension;
+    const wrapped = new WeakSet();
+    Ctx.prototype.getExtension = function (n) {
+      const ext = getExtension.call(this, n);
+      if (ext && !wrapped.has(ext)) {
+        wrapped.add(ext);
+        const proto = Object.getPrototypeOf(ext);
+        for (const k of Object.getOwnPropertyNames(proto)) {
+          const d = Object.getOwnPropertyDescriptor(proto, k);
+          if (d && typeof d.value === 'function' && k !== 'constructor') ext[k] = wrap(k, d.value, false);
+        }
+      }
+      return ext;
+    };
+  }
+
+  // Draw the captured frame again from its recorded GL calls, breaking the armed draw if there is one. Objects the
+  // frame created are created afresh and stand in for the originals in later calls.
+  function replay() {
+    const created = new Map();
+    mode = 'replay';
+    try {
+      for (const e of frame) {
+        const args = created.size ? e.args.map((a) => created.get(a) ?? a) : e.args;
+        if (e.draw !== undefined && armed && armed.draw === e.draw) {
+          glitchDraw(e.target, e.name, e.fn, args);
+          continue;
+        }
+        const r = e.fn.apply(e.target, args);
+        if (e.created) created.set(e.created, r);
+      }
+    } finally {
+      mode = 'off';
     }
   }
 
@@ -164,6 +286,10 @@
   }
 
   function readBuffer(gl, buf) {
+    if (!isGL2(gl)) {
+      const copy = shadows.get(buf);
+      return copy ? copy.slice() : null;
+    }
     const prev = gl.getParameter(gl.COPY_READ_BUFFER_BINDING);
     gl.bindBuffer(gl.COPY_READ_BUFFER, buf);
     const size = gl.getBufferParameter(gl.COPY_READ_BUFFER, gl.BUFFER_SIZE);
@@ -183,6 +309,7 @@
     const ebo = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
     if (!ebo) return null;
     const bytes = readBuffer(gl, ebo);
+    if (!bytes) return null;
     const T = p.type === gl.UNSIGNED_INT ? Uint32Array : p.type === gl.UNSIGNED_SHORT ? Uint16Array : Uint8Array;
     if (p.offset + p.count * T.BYTES_PER_ELEMENT > bytes.length) return null;
     return { verts: new T(bytes.buffer, p.offset, p.count), ebo, bytes, T };
@@ -199,7 +326,8 @@
   // point the attribute back at the original buffer.
   function withEditedAttribute(gl, loc, edit, draw) {
     if (!gl.getVertexAttrib(loc, gl.VERTEX_ATTRIB_ARRAY_ENABLED)) return null;
-    if (gl.getVertexAttrib(loc, gl.VERTEX_ATTRIB_ARRAY_INTEGER) || gl.getVertexAttrib(loc, gl.VERTEX_ATTRIB_ARRAY_DIVISOR)) return null;
+    // (these two queries only exist in WebGL 2; asking WebGL 1 would raise a GL error the page might notice)
+    if (isGL2(gl) && (gl.getVertexAttrib(loc, gl.VERTEX_ATTRIB_ARRAY_INTEGER) || gl.getVertexAttrib(loc, gl.VERTEX_ATTRIB_ARRAY_DIVISOR))) return null;
     if (gl.getVertexAttrib(loc, gl.VERTEX_ATTRIB_ARRAY_TYPE) !== gl.FLOAT) return null;
     const buffer = gl.getVertexAttrib(loc, gl.VERTEX_ATTRIB_ARRAY_BUFFER_BINDING);
     if (!buffer) return null;
@@ -208,6 +336,7 @@
     const stride = gl.getVertexAttrib(loc, gl.VERTEX_ATTRIB_ARRAY_STRIDE);
     const offset = gl.getVertexAttribOffset(loc, gl.VERTEX_ATTRIB_ARRAY_POINTER);
     const bytes = readBuffer(gl, buffer);
+    if (!bytes) return null;
     const step = stride || size * 4;
     const n = bytes.length >= offset + size * 4 ? Math.floor((bytes.length - offset - size * 4) / step) + 1 : 0;
     const view = new DataView(bytes.buffer);
@@ -598,11 +727,54 @@
 
   let clean = null;
   let cleanDraws = [];
+  let replayable = false; // the clean frame is a recorded frame that replays exactly
 
-  // Step the frozen page until the frame stops changing (lets damping, TAA and fades come to rest). An easing camera
-  // can hold still for a frame or two and then creep on, so it takes `hold` identical frames in a row; with a typical
-  // damping factor of 0.05, that is about how long the rest of the motion takes to add up.
+  function keepClean(frameImage) {
+    clean = frameImage;
+    cleanDraws = draws.filter((d) => d.gl.canvas === mainCanvas() || !(d.gl.canvas instanceof HTMLCanvasElement));
+    const byType = {};
+    for (const d of cleanDraws) for (const t of d.eligible) byType[t] = (byType[t] ?? 0) + 1;
+    return byType;
+  }
+
+  // Record one frame's GL calls and replay them. This holds the frame still even when the page animates by frame
+  // count (an object turned a little every frame) rather than by time. It counts only if two replays match each
+  // other and match the frame the page drew itself.
+  function settleByReplay() {
+    capturing = true;
+    frame = [];
+    let s;
+    try {
+      s = step('record');
+    } finally {
+      capturing = false;
+    }
+    if (!s.callbacks) return { ok: false, reason: 'the page does not draw from requestAnimationFrame' };
+    const own = grab();
+    replay();
+    const a = grab();
+    replay();
+    const b = grab();
+    if (!same(a, b)) return { ok: false, reason: 'the replay is not repeatable' };
+    const d = diff(own, a);
+    if (d.fraction > 0.001) return { ok: false, reason: `the replay differs from the page's own frame (${(d.fraction * 100).toFixed(2)}%)` };
+    replayable = true;
+    return { ok: true, steps: 1, replay: true, calls: frame.length, draws: 0, eligible: keepClean(a) };
+  }
+
+  // Prefer a replayed frame; otherwise step the frozen page until the frame stops changing (lets damping, TAA and
+  // fades come to rest). An easing camera can hold still for a frame or two and then creep on, so it takes `hold`
+  // identical frames in a row; with a typical damping factor of 0.05, that is about how long the rest of the motion
+  // takes to add up.
   function settle(maxSteps = 600, hold = 25) {
+    replayable = false;
+    const r = settleByReplay();
+    if (r.ok) {
+      r.draws = cleanDraws.length;
+      return r;
+    }
+    frame = [];
+    const replayProblem = r.reason;
     let prev = null;
     let run = 0;
     for (let i = 0; i < maxSteps; i++) {
@@ -612,18 +784,26 @@
       run = prev && same(prev, cur) ? run + 1 : 0;
       prev = cur;
       if (run >= hold) {
-        clean = cur;
-        cleanDraws = draws.filter((d) => d.gl.canvas === mainCanvas() || !(d.gl.canvas instanceof HTMLCanvasElement));
-        const byType = {};
-        for (const d of cleanDraws) for (const t of d.eligible) byType[t] = (byType[t] ?? 0) + 1;
-        return { ok: true, steps: i + 1, draws: cleanDraws.length, eligible: byType };
+        const byType = keepClean(cur);
+        return { ok: true, steps: i + 1, draws: cleanDraws.length, eligible: byType, replay_problem: replayProblem };
       }
     }
-    return { ok: false, reason: 'the frame never stopped changing' };
+    return { ok: false, reason: 'the frame never stopped changing', replay_problem: replayProblem };
   }
 
-  // after a broken frame, step until the clean frame comes back (temporal effects may carry the glitch a few frames)
+  // Draw the frame broken: replay it with the armed draw broken, or step the page once more.
+  function drawBroken() {
+    if (replayable) replay();
+    else step('glitch');
+  }
+
+  // after a broken frame, check the clean frame comes back: a replay must reproduce it at once; a stepped page may
+  // take a few frames (temporal effects can carry the glitch)
   function recover(maxSteps = 30) {
+    if (replayable) {
+      replay();
+      return same(clean, grab());
+    }
     for (let i = 0; i < maxSteps; i++) {
       step('record');
       if (same(clean, grab())) return true;
@@ -644,7 +824,7 @@
       const d = candidates[Math.floor(rnd() * candidates.length)];
       armed = { draw: d.index, type, rnd: mulberry(seed * 9973 + t + 1) };
       applied = null;
-      step('glitch');
+      drawBroken();
       const glitched = grab();
       const result = applied;
       armed = null;
@@ -684,15 +864,21 @@
       return { contexts: contexts.size, webgl2: [...contexts].some(isGL2), canvas: c ? [c.width, c.height] : null, frozen, queued: queue.length };
     },
     freeze() {
+      frozenNow = realNow() - pausedPerf;
+      frozenDate = realDateNow() - pausedDate;
+      frozeAtPerf = realNow();
+      frozeAtDate = realDateNow();
       frozen = true;
-      frozenNow = realNow();
-      frozenDate = realDateNow();
     },
     unfreeze() {
+      pausedPerf += realNow() - frozeAtPerf;
+      pausedDate += realDateNow() - frozeAtDate;
       frozen = false;
+      replayable = false;
+      frame = []; // the recorded frame holds copies of the page's data; let it go
       const q = queue;
       queue = [];
-      for (const e of q) realRAF(e.cb);
+      for (const e of q) realRAF(shifted(e.cb));
     },
     settle,
     clean: () => clean?.toDataURL('image/png') ?? null,

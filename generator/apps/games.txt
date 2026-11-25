@@ -1,0 +1,4 @@
+# Real open-source WebGL games, each played by a driver between capture moments. Served from sources/ (--serve sources).
+# HexGL: github.com/BKcore/HexGL (MIT, three.js r53, WebGL 1). Edelweiss: github.com/felixmariotto/Edelweiss (CC0, three.js r109).
+hexgl /HexGL/index.html?controlType=0&quality=3&hud=0&godmode=1 generator/apps/drivers/hexgl.mjs
+edelweiss /Edelweiss/public/index.html generator/apps/drivers/edelweiss.mjs
