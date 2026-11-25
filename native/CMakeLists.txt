@@ -26,6 +26,10 @@ if(NOT WIN32)
 endif()
 target_include_directories(VkLayer_framehound PRIVATE ${Vulkan_INCLUDE_DIRS})
 target_link_libraries(VkLayer_framehound PRIVATE ZLIB::ZLIB)
+if(UNIX AND NOT APPLE)
+  # bind the layer's own references to its own functions, not to the loader's functions of the same names
+  target_link_options(VkLayer_framehound PRIVATE -Wl,-Bsymbolic)
+endif()
 # the manifest the loader reads, naming the library as this platform builds it (.dylib, .so or .dll), next to it
 file(READ layer/VkLayer_framehound.json.in MANIFEST)
 string(REPLACE "LIBRARY" "./$<TARGET_FILE_NAME:VkLayer_framehound>" MANIFEST "${MANIFEST}")

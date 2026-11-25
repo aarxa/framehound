@@ -1587,16 +1587,10 @@ PFN_vkVoidFunction DeviceFunction(const char* name) {
   return GeneratedCommand(name);
 }
 
-}  // namespace
-
-extern "C" {
-
-VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(VkDevice device, const char* name) {
-  return fh_GetDeviceProcAddr(device, name);
-}
-
-VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char* name) {
-  if (!strcmp(name, "vkGetInstanceProcAddr")) return (PFN_vkVoidFunction)vkGetInstanceProcAddr;
+// The layer's entry points. They are reached only through these internal names: on Linux, a shared library's own
+// reference to an exported vkGetInstanceProcAddr can resolve to the loader's function of the same name.
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL fh_GetInstanceProcAddr(VkInstance instance, const char* name) {
+  if (!strcmp(name, "vkGetInstanceProcAddr")) return (PFN_vkVoidFunction)fh_GetInstanceProcAddr;
   if (!strcmp(name, "vkCreateInstance")) return (PFN_vkVoidFunction)fh_CreateInstance;
   if (!strcmp(name, "vkDestroyInstance")) return (PFN_vkVoidFunction)fh_DestroyInstance;
   if (!strcmp(name, "vkCreateDevice")) return (PFN_vkVoidFunction)fh_CreateDevice;
@@ -1614,10 +1608,22 @@ VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(V
   return mine ? mine : next;
 }
 
+}  // namespace
+
+extern "C" {
+
+VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(VkDevice device, const char* name) {
+  return fh_GetDeviceProcAddr(device, name);
+}
+
+VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char* name) {
+  return fh_GetInstanceProcAddr(instance, name);
+}
+
 VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkNegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface* v) {
   if (v->loaderLayerInterfaceVersion >= 2) {
-    v->pfnGetInstanceProcAddr = vkGetInstanceProcAddr;
-    v->pfnGetDeviceProcAddr = vkGetDeviceProcAddr;
+    v->pfnGetInstanceProcAddr = fh_GetInstanceProcAddr;
+    v->pfnGetDeviceProcAddr = fh_GetDeviceProcAddr;
     v->pfnGetPhysicalDeviceProcAddr = nullptr;
     v->loaderLayerInterfaceVersion = 2;
   }
