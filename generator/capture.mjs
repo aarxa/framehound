@@ -7,7 +7,7 @@
 //   node generator/capture.mjs --apps generator/apps/test.txt --out out/gl-check [--moments 3] [--per-moment 10]
 //   node generator/capture.mjs --url https://example.com/game.html [--id mygame] [--driver my-driver.mjs] --out ...
 //        [--warmup 6] [--gap 3] [--workers 4] [--serve sources/threejs-r170] [--types missing_texture,inside_out]
-//        [--width 768 --height 432] [--min-strong 0.001] [--app-timeout 180]
+//        [--width 768 --height 432] [--min-strong 0.001] [--app-timeout 180] [--fetch-missing <base url>]
 //
 // The apps file has one page per line: "<id> <url> [driver.mjs]" (lines starting with # are skipped). A url starting with "/" is
 // served from the --serve folder on a local server.
@@ -34,6 +34,25 @@ const VAL_EVERY = 5; // apps whose id hashes to 0 mod 5 go to validation, so val
 const injector = join(root, 'generator/inject/glitch-gl.js');
 
 // a plain static server for pages kept on disk (only files under the served folder are reachable)
+// --fetch-missing <base url>: a file missing from the --serve folder is fetched from <base url>/<path> and kept, so a
+// page at a given version can be served without downloading the whole repository (for three.js: the folder holds one
+// subfolder per release tag, and the base is https://raw.githubusercontent.com/mrdoob/three.js).
+const fetching = new Map();
+async function fetchMissing(dir, path) {
+  const rel = path.slice(dir.length).replace(/^\/+/, '');
+  if (!fetching.has(rel)) {
+    fetching.set(rel, (async () => {
+      const res = await fetch(`${String(args['fetch-missing']).replace(/\/$/, '')}/${rel}`, { headers: { 'User-Agent': 'framehound/0.1' } });
+      if (!res.ok) return null;
+      const body = Buffer.from(await res.arrayBuffer());
+      await mkdir(join(path, '..'), { recursive: true });
+      await writeFile(path, body);
+      return body;
+    })().catch(() => null));
+  }
+  return fetching.get(rel);
+}
+
 let base = null;
 let server = null;
 if (args.serve) {
@@ -46,12 +65,10 @@ if (args.serve) {
   server = createServer(async (req, res) => {
     const path = normalize(join(dir, decodeURIComponent(new URL(req.url, 'http://x').pathname)));
     if (!path.startsWith(dir)) return res.writeHead(403).end();
-    try {
-      const body = await readFile(path);
-      res.writeHead(200, { 'content-type': types[extname(path).toLowerCase()] ?? 'application/octet-stream' }).end(body);
-    } catch {
-      res.writeHead(404).end();
-    }
+    let body = await readFile(path).catch(() => null);
+    if (!body && args['fetch-missing']) body = await fetchMissing(dir, path);
+    if (!body) return res.writeHead(404).end();
+    res.writeHead(200, { 'content-type': types[extname(path).toLowerCase()] ?? 'application/octet-stream' }).end(body);
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   base = `http://127.0.0.1:${server.address().port}`;

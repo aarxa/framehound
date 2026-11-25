@@ -52,6 +52,26 @@ It catches fewer than half of exploded vertices and inside-out meshes.
 **On three.js examples** the same holds: on five pages never trained on, a model trained on 145 other pages scores 0.67;
 models trained on each page's own earlier frames score 0.89–0.93.
 
+**On real bugs.** These are rendering bugs that three.js actually shipped, each learned on the example's last good release
+and tested on 30 frames from the broken release against 30 from the release that fixed it:
+
+| Bug | Learned on | AUROC, broken vs fixed | Broken frames flagged | Fixed frames flagged |
+|---|---|---|---|---|
+| [#27809](https://github.com/mrdoob/three.js/issues/27809): a shader error turns the progressive-lightmap scene black (r161) | r160 | **1.00** | 30 of 30 | 0 of 30 |
+| [#30819](https://github.com/mrdoob/three.js/issues/30819): extruded shapes lose their end caps (r175) | r174 | 0.52 (chance) | 30 of 30 | 24 of 30 |
+
+The flags use the model's own threshold, set when learning on injected glitches. The first bug is caught on every
+frame, with the black objects outlined.
+
+The second is missed, for two reasons. The missing caps are small. And the example builds a new random shape every
+time the page loads, while the model learned from a single load. So it flags most frames of every new load, fixed
+release included. An app whose content changes from run to run has to be learned across several runs.
+
+Two more cases were left out:
+- [#26112](https://github.com/mrdoob/three.js/issues/26112), the car example: no difference shows in headless Chrome.
+- [#26110](https://github.com/mrdoob/three.js/issues/26110), the SVG example: it only draws when the mouse moves,
+  which the injector can't freeze yet.
+
 **What doesn't work: one model for every app.** framehound started as a single model meant to spot glitches in any
 game's screenshot. It doesn't get there:
 

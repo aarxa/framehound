@@ -1,0 +1,18 @@
+# Real three.js rendering regressions, each shown by an official example at a good, a broken and a fixed release.
+# Served from sources/threejs-versions with --fetch-missing https://raw.githubusercontent.com/mrdoob/three.js
+# #30819 ExtrudeGeometry caps missing (r175, fixed r176)
+extrude-r174 /r174/examples/webgl_geometry_extrude_shapes.html
+extrude-r175 /r175/examples/webgl_geometry_extrude_shapes.html
+extrude-r176 /r176/examples/webgl_geometry_extrude_shapes.html
+# #26110 SVG shapes drawn in the wrong order (r152, fixed r153)
+svg-r151 /r151/examples/webgl_loader_svg.html
+svg-r152 /r152/examples/webgl_loader_svg.html
+svg-r153 /r153/examples/webgl_loader_svg.html
+# #26112 car materials example broken (r152)
+car-r151 /r151/examples/webgl_materials_car.html
+car-r152 /r152/examples/webgl_materials_car.html
+car-r153 /r153/examples/webgl_materials_car.html
+# #27809 progressive lightmaps black from a shader error (r161, fixed r162)
+progressive-r160 /r160/examples/webgl_shadowmap_progressive.html
+progressive-r161 /r161/examples/webgl_shadowmap_progressive.html
+progressive-r162 /r162/examples/webgl_shadowmap_progressive.html
