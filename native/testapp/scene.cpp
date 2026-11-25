@@ -5,6 +5,8 @@
 //   fh_scene [--frames 300] [--size 768x432] [--indirect] [--secondary] [--submit2] [--timeline]
 //     --indirect: draw with vkCmdDrawIndexedIndirect; --secondary: record the draws in a secondary command buffer;
 //     --submit2: submit with vkQueueSubmit2; --timeline: also signal a timeline semaphore each frame
+//   --bug texture:N | --bug inside:N   ship a bug in draw N (0 is the ground, 1-10 the ring, 11 the big sphere):
+//     drawn with the fallback texture, or with culling flipped so its inside shows
 #include <vulkan/vulkan.h>
 
 #include <cmath>
@@ -233,6 +235,8 @@ int main(int argc, char** argv) {
   uint32_t W = 768, H = 432;
   std::string shaders = SHADER_DIR;
   bool indirect = false, secondary = false, submit2 = false, timeline = false;
+  std::string bugKind;
+  int bugDraw = -1;
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) frames = std::atoi(argv[++i]);
     else if (!std::strcmp(argv[i], "--size") && i + 1 < argc) std::sscanf(argv[++i], "%ux%u", &W, &H);
@@ -240,19 +244,24 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(argv[i], "--secondary")) secondary = true;
     else if (!std::strcmp(argv[i], "--submit2")) submit2 = true;
     else if (!std::strcmp(argv[i], "--timeline")) timeline = true;
+    else if (!std::strcmp(argv[i], "--bug") && i + 1 < argc) {
+      std::string b = argv[++i];
+      bugKind = b.substr(0, b.find(':'));
+      bugDraw = std::atoi(b.substr(b.find(':') + 1).c_str());
+    }
   }
   App a;
 
   // instance with a headless surface: no window needed
   const char* iext[] = {VK_KHR_SURFACE_EXTENSION_NAME, "VK_EXT_headless_surface", VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
-                        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME};
+                        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
   VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
   app.pApplicationName = "fh_scene";
   app.apiVersion = VK_API_VERSION_1_2;
   VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
   ici.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
   ici.pApplicationInfo = &app;
-  ici.enabledExtensionCount = 4;
+  ici.enabledExtensionCount = 5;
   ici.ppEnabledExtensionNames = iext;
   CHECK(vkCreateInstance(&ici, nullptr, &a.instance));
   auto createHeadless = (PFN_vkCreateHeadlessSurfaceEXT)vkGetInstanceProcAddr(a.instance, "vkCreateHeadlessSurfaceEXT");
@@ -391,9 +400,9 @@ int main(int argc, char** argv) {
   dli.pBindings = &binding;
   VkDescriptorSetLayout setLayout;
   CHECK(vkCreateDescriptorSetLayout(a.device, &dli, nullptr, &setLayout));
-  VkDescriptorPoolSize ps{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2};
+  VkDescriptorPoolSize ps{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3};
   VkDescriptorPoolCreateInfo dpi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-  dpi.maxSets = 2;
+  dpi.maxSets = 3;
   dpi.poolSizeCount = 1;
   dpi.pPoolSizes = &ps;
   VkDescriptorPool dpool;
@@ -403,15 +412,24 @@ int main(int argc, char** argv) {
   smi.addressModeU = smi.addressModeV = smi.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   VkSampler sampler;
   CHECK(vkCreateSampler(a.device, &smi, nullptr, &sampler));
-  VkDescriptorSet sets[2];
-  for (int t = 0; t < 2; t++) {
+  auto nameObject = (PFN_vkSetDebugUtilsObjectNameEXT)vkGetDeviceProcAddr(a.device, "vkSetDebugUtilsObjectNameEXT");
+  auto name = [&](VkObjectType type, uint64_t handle, const char* text) {
+    if (!nameObject) return;
+    VkDebugUtilsObjectNameInfoEXT ni{VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT};
+    ni.objectType = type, ni.objectHandle = handle, ni.pObjectName = text;
+    nameObject(a.device, &ni);
+  };
+  VkDescriptorSet sets[3];
+  const char* textureNames[3] = {"checker texture", "stripes texture", "fallback texture"};
+  for (int t = 0; t < 3; t++) {
     std::vector<uint8_t> px(TS * TS * 4);
     for (uint32_t y = 0; y < TS; y++)
       for (uint32_t x = 0; x < TS; x++) {
-        bool on = t == 0 ? ((x / 32) + (y / 32)) % 2 : (y / 16) % 2;
+        bool on = t == 1 ? (y / 16) % 2 : ((x / 32) + (y / 32)) % 2;
         uint8_t* p = &px[(y * TS + x) * 4];
         uint8_t v = on ? 235 : (t == 0 ? 120 : 170);
         p[0] = v, p[1] = v, p[2] = uint8_t(t == 0 ? v : v * 0.85), p[3] = 255;
+        if (t == 2) p[0] = on ? 255 : 0, p[1] = 0, p[2] = on ? 255 : 0;  // the engine's magenta and black "missing" checker
       }
     VkDeviceMemory stagingMem, texMem;
     VkBuffer staging = a.Buffer(px.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, px.data(), &stagingMem);
@@ -448,6 +466,8 @@ int main(int argc, char** argv) {
     sai.descriptorSetCount = 1;
     sai.pSetLayouts = &setLayout;
     CHECK(vkAllocateDescriptorSets(a.device, &sai, &sets[t]));
+    name(VK_OBJECT_TYPE_DESCRIPTOR_SET, uint64_t(sets[t]), textureNames[t]);
+    name(VK_OBJECT_TYPE_IMAGE, uint64_t(tex), textureNames[t]);
     VkDescriptorImageInfo dii{sampler, a.View(tex, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     w.dstSet = sets[t];
@@ -529,14 +549,19 @@ int main(int argc, char** argv) {
   gp.stageCount = 2, gp.pStages = stages, gp.pVertexInputState = &vi, gp.pInputAssemblyState = &ia, gp.pViewportState = &vps;
   gp.pRasterizationState = &rs, gp.pMultisampleState = &ms, gp.pDepthStencilState = &ds, gp.pColorBlendState = &cb;
   gp.layout = layout, gp.renderPass = pass;
-  VkPipeline solid, glass;
+  VkPipeline solid, glass, flipped;
   CHECK(vkCreateGraphicsPipelines(a.device, VK_NULL_HANDLE, 1, &gp, nullptr, &solid));
+  rs.cullMode = VK_CULL_MODE_FRONT_BIT;  // a winding bug: the front faces are culled
+  CHECK(vkCreateGraphicsPipelines(a.device, VK_NULL_HANDLE, 1, &gp, nullptr, &flipped));
   rs.cullMode = VK_CULL_MODE_NONE;
   ds.depthWriteEnable = VK_FALSE;
   blend.blendEnable = VK_TRUE;
   blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA, blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
   blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE, blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
   CHECK(vkCreateGraphicsPipelines(a.device, VK_NULL_HANDLE, 1, &gp, nullptr, &glass));
+  name(VK_OBJECT_TYPE_PIPELINE, uint64_t(solid), "solid");
+  name(VK_OBJECT_TYPE_PIPELINE, uint64_t(flipped), "solid");
+  name(VK_OBJECT_TYPE_PIPELINE, uint64_t(glass), "glass");
 
   // frames
   VkSemaphoreCreateInfo semi{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
@@ -593,7 +618,12 @@ int main(int argc, char** argv) {
     VkDeviceSize zero = 0;
     vkCmdBindVertexBuffers(cmd, 0, 1, &vbuf, &zero);
     vkCmdBindIndexBuffer(cmd, ibuf, 0, VK_INDEX_TYPE_UINT32);
+    int drawNumber = 0;
     auto draw = [&](VkPipeline pipe, int set, const Mesh& m, const Mat& model, const float* rgb, float alpha, float repeat) {
+      if (drawNumber++ == bugDraw) {  // the shipped bug
+        if (bugKind == "texture") set = 2;
+        if (bugKind == "inside") pipe = flipped;
+      }
       vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &sets[set], 0, nullptr);
       Push p{viewProj * model, model, {rgb[0], rgb[1], rgb[2], alpha}, {repeat, 0, 0, 0}};

@@ -76,10 +76,11 @@ Then learn from it as from any capture:
 | `FRAMEHOUND_APP` | the app's id in the manifest |
 | `FRAMEHOUND_START`, `FRAMEHOUND_EVERY` | first frame to capture, then every N frames |
 | `FRAMEHOUND_CAPTURES` | the most frames to capture |
-| `FRAMEHOUND_VARIANTS` | broken copies per captured frame |
+| `FRAMEHOUND_VARIANTS` | broken copies per captured frame; 0 keeps clean frames only |
 | `FRAMEHOUND_TYPES` | glitches to use, comma-separated |
 | `FRAMEHOUND_SHADOW_ALL=1` | shadow every command buffer, for apps that record theirs once and submit them every frame |
 | `FRAMEHOUND_SEED` | random seed |
+| `FRAMEHOUND_LOCATE` | frames to draw again once per draw, each without one draw (see below); replaces the schedule |
 
 `fh_scene` (`testapp/`) is a small Vulkan scene for trying the layer without a game. It draws a textured ground, a ring
 of turning cubes and spheres, and two glass boxes, to a headless swapchain (no window). Like a game engine, it
@@ -87,7 +88,42 @@ re-records its command buffer every frame. Options try the layer on what engines
 - `--indirect` draws everything with `vkCmdDrawIndexedIndirect`;
 - `--secondary` records the draws in a secondary command buffer;
 - `--submit2` submits with `vkQueueSubmit2`;
-- `--timeline` also signals a timeline semaphore every frame.
+- `--timeline` also signals a timeline semaphore every frame;
+- `--bug texture:N` or `--bug inside:N` ships a bug in draw N, for testing `locate.py`.
+
+It names its pipelines and textures with `VK_EXT_debug_utils`, as engines do.
+
+## Naming the draws behind a flagged frame
+
+`native/locate.py` is `framehound watch` for Vulkan apps. It runs the app twice with the layer:
+1. The first run keeps every Nth frame (`FRAMEHOUND_VARIANTS=0`), and the app's model checks them.
+2. The second run draws each flagged frame once per draw call with that draw left out (`FRAMEHOUND_LOCATE`). Draws
+   are ranked by the model's heatmap, as in the WebGL watch.
+
+The report describes each draw by its call, size, pipeline and descriptor sets. It uses the names the app gave them
+with `VK_EXT_debug_utils`, as engines do in their development builds.
+
+```bash
+.venv/bin/python native/locate.py --model models/native-scene --out watch/native-bug --start 580 --every 10 --count 14 \
+  --expect 5 -- native/build/fh_scene --frames 720 --bug texture:5
+```
+
+Both runs must draw the same frames. A deterministic app does, and so does a replay of a recording (below). The
+report checks that they did.
+
+To test it, `fh_scene --bug` ships a bug in one draw. The model learned on the clean scene checked 14 frames from the
+stretch of the camera's path it never trained on:
+
+| Build | Frames flagged | Broken draw named first |
+|---|---|---|
+| no bug | 2 of 14 | |
+| a cube drawn with the fallback texture (`--bug texture:5`) | 14 of 14 | 14 of 14 |
+| the big sphere drawn with the fallback texture (`texture:11`) | 14 of 14 | 14 of 14 |
+| the big sphere drawn inside out (`inside:11`) | 14 of 14 | 14 of 14 |
+| a cube drawn inside out (`inside:3`) | 2 of 14 | 0 of 2 |
+
+The inside-out cube is missed. The model catches only 64% of inside-out glitches in its own tests, and a small cube
+seen from inside looks much like a cube.
 
 ## Recorded sessions
 

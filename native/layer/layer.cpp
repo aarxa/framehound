@@ -15,7 +15,10 @@
 //   FRAMEHOUND_APP       the app's id in the manifest (default "app")
 //   FRAMEHOUND_START     first frame to capture (default 30), FRAMEHOUND_EVERY: then every N frames (default 30)
 //   FRAMEHOUND_CAPTURES  how many frames to capture at most (default unlimited)
-//   FRAMEHOUND_VARIANTS  broken copies per captured frame (default 8)
+//   FRAMEHOUND_VARIANTS  broken copies per captured frame (default 8; 0 writes clean frames only)
+//   FRAMEHOUND_LOCATE    frames (comma-separated) to draw again once per draw call with that draw left out, writing
+//                        locate/<frame>/: the frame, each frame without one draw, and draws.json (for naming the draws
+//                        behind a flagged frame, see native/locate.py); replaces the capture schedule
 //   FRAMEHOUND_TYPES     glitches to use, comma-separated (default all six)
 //   FRAMEHOUND_SEED      random seed (default 1)
 //   FRAMEHOUND_SHADOW_ALL=1  shadow every command buffer the app records, not just those of capture frames, for apps
@@ -57,6 +60,7 @@ struct Config {
   long start = 30, every = 30, captures = -1, variants = 8;
   unsigned seed = 1;
   bool shadowAll = false;  // shadow every command buffer, for apps that record once and submit every frame
+  std::vector<long> locate;  // frames to draw again once per draw with that draw left out, in place of the schedule
   std::vector<std::string> types = {"missing_draw", "missing_texture", "dropped_faces", "inside_out", "depth_test_off", "additive_blend"};
   bool active() const { return !out.empty(); }
 };
@@ -69,7 +73,15 @@ Config LoadConfig() {
   if (const char* v = get("FRAMEHOUND_START")) c.start = std::atol(v);
   if (const char* v = get("FRAMEHOUND_EVERY")) c.every = std::max(1L, std::atol(v));
   if (const char* v = get("FRAMEHOUND_CAPTURES")) c.captures = std::atol(v);
-  if (const char* v = get("FRAMEHOUND_VARIANTS")) c.variants = std::max(1L, std::atol(v));
+  if (const char* v = get("FRAMEHOUND_VARIANTS")) c.variants = std::max(0L, std::atol(v));  // 0: clean frames only
+  if (const char* v = get("FRAMEHOUND_LOCATE")) {
+    std::string s = v;
+    for (size_t a = 0, b; a <= s.size(); a = b + 1) {
+      b = s.find(',', a);
+      if (b == std::string::npos) b = s.size();
+      if (b > a) c.locate.push_back(std::atol(s.substr(a, b - a).c_str()));
+    }
+  }
   if (const char* v = get("FRAMEHOUND_SEED")) c.seed = unsigned(std::atol(v));
   if (const char* v = get("FRAMEHOUND_SHADOW_ALL")) c.shadowAll = std::atoi(v) != 0;
   if (const char* v = get("FRAMEHOUND_TYPES")) {
@@ -108,6 +120,10 @@ struct Variant {
   bool applied = false;
   uint32_t count = 0;
   std::string call;
+  bool skip = false;  // locate: just leave the draw out
+  int pipeline = 0;   // the pipeline it drew with, numbered in creation order
+  std::string pipelineName;
+  std::string sets;   // JSON list of the names of its bound descriptor sets, when the app named them
 };
 
 struct BoundSet {
@@ -146,6 +162,7 @@ struct Instance {
 };
 
 struct PipelineInfo {
+  int id = 0;
   VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
   VkPipeline insideOut = VK_NULL_HANDLE, depthOff = VK_NULL_HANDLE, additive = VK_NULL_HANDLE;
 };
@@ -173,7 +190,7 @@ struct Device {
   X(BindBufferMemory) X(MapMemory) X(UnmapMemory) X(DeviceWaitIdle) X(CreateDescriptorSetLayout)                      \
   X(CreatePipelineLayout) X(AllocateDescriptorSets) X(FreeDescriptorSets) X(CreateDescriptorPool)                        \
   X(DestroyDescriptorPool) X(UpdateDescriptorSets) X(CreateImage) X(DestroyImage) X(CreateImageView) X(DestroyImageView) \
-  X(GetImageMemoryRequirements) X(BindImageMemory) X(CreateSampler) X(DestroySampler)
+  X(GetImageMemoryRequirements) X(BindImageMemory) X(CreateSampler) X(DestroySampler) X(SetDebugUtilsObjectNameEXT)
 #define FH_DECLARE(name) PFN_vk##name name = nullptr;
   FH_DEVICE_FUNCTIONS(FH_DECLARE)
 
@@ -186,7 +203,10 @@ struct Device {
   uint64_t frame = 0;
   long drawsThisFrame = 0, drawsLastFrame = 0;
   bool capturing = false;
+  bool locating = false;  // this frame is a locate frame
   long captured = 0;
+  int nextPipelineId = 0;
+  std::unordered_map<uint64_t, std::string> names;  // debug names the app gave its objects (VK_EXT_debug_utils)
   std::vector<Variant> variants;
   std::mt19937 rng{1};
   unsigned nextSeed = 1;
@@ -817,6 +837,7 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_CreateGraphicsPipelines(VkDevice device, VkPip
   for (uint32_t i = 0; i < n; i++) {
     const VkGraphicsPipelineCreateInfo& ci = infos[i];
     PipelineInfo p;
+    p.id = ++d->nextPipelineId;
     if (ci.pInputAssemblyState) p.topology = ci.pInputAssemblyState->topology;
     if (config().active()) {
       auto dynamic = [&](VkDynamicState s) {
@@ -881,6 +902,16 @@ VKAPI_ATTR void VKAPI_CALL fh_DestroyPipeline(VkDevice device, VkPipeline pipeli
   for (VkPipeline v : {p.insideOut, p.depthOff, p.additive})
     if (v) d->DestroyPipeline(device, v, a);
   d->DestroyPipeline(device, pipeline, a);
+}
+
+// names the app gives its objects, to describe draws by them
+VKAPI_ATTR VkResult VKAPI_CALL fh_SetDebugUtilsObjectNameEXT(VkDevice device, const VkDebugUtilsObjectNameInfoEXT* info) {
+  Device* d = DeviceOf(device);
+  if (info->pObjectName) {
+    std::lock_guard<std::mutex> g(lock);
+    d->names[info->objectHandle] = info->pObjectName;
+  }
+  return d->SetDebugUtilsObjectNameEXT ? d->SetDebugUtilsObjectNameEXT(device, info) : VK_SUCCESS;
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL fh_CreateDescriptorSetLayout(VkDevice device, const VkDescriptorSetLayoutCreateInfo* info, const VkAllocationCallbacks* a, VkDescriptorSetLayout* out) {
@@ -1057,8 +1088,26 @@ void Draw(Recording* r, VkCommandBuffer cb, const DrawCall& dc) {
   long index = d->drawsThisFrame++;
   long local = r->draws++;
   for (size_t v = 0; v < r->shadows.size(); v++) {
-    if (r->variants[v].draw == (r->local ? local : index)) BreakDraw(d, r, r->shadows[v], r->variants[v], dc);
-    else dc.draw(r->shadows[v], dc.count, dc.first);
+    Variant& var = r->variants[v];
+    if (var.draw != (r->local ? local : index)) {
+      dc.draw(r->shadows[v], dc.count, dc.first);
+    } else if (var.skip) {
+      // locate: this copy leaves the draw out; note what it drew with
+      var.applied = true, var.type = "missing_draw", var.call = dc.call, var.count = dc.count;
+      auto pi = d->pipelines.find(r->bound);
+      var.pipeline = pi == d->pipelines.end() ? 0 : pi->second.id;
+      auto nm = d->names.find(uint64_t(r->bound));
+      if (nm != d->names.end()) var.pipelineName = nm->second;
+      var.sets = "[";
+      for (const BoundSet& b : r->sets) {
+        if (!b.set) continue;
+        auto sn = d->names.find(uint64_t(b.set));
+        var.sets += (var.sets.size() > 1 ? ", " : "") + (sn != d->names.end() ? Json(sn->second) : std::string("null"));
+      }
+      var.sets += "]";
+    } else {
+      BreakDraw(d, r, r->shadows[v], var, dc);
+    }
   }
 }
 
@@ -1122,9 +1171,21 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_QueuePresentKHR(VkQueue queue, const VkPresent
   d->drawsThisFrame = 0;
   d->frame++;
   long f = long(d->frame);
+  d->variants.clear();
+  d->locating = c.active() && std::find(c.locate.begin(), c.locate.end(), f) != c.locate.end() && d->drawsLastFrame > 0;
+  if (!c.locate.empty()) {
+    // one copy per draw of the frame, each leaving one draw out
+    d->capturing = d->locating;
+    for (long k = 0; d->locating && k < d->drawsLastFrame; k++) {
+      Variant var;
+      var.draw = k;
+      var.skip = true;
+      d->variants.push_back(var);
+    }
+    return r;
+  }
   d->capturing = c.active() && f >= c.start && (f - c.start) % c.every == 0 && (c.captures < 0 || d->captured < c.captures) &&
                  (c.shadowAll || d->drawsLastFrame > 0);
-  d->variants.clear();
   if (d->capturing && !c.shadowAll) {
     for (long v = 0; v < c.variants; v++) {
       Variant var;
@@ -1136,6 +1197,8 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_QueuePresentKHR(VkQueue queue, const VkPresent
   return r;
 }
 
+void NoteFrame(Device* d, const std::string& cleanRel);
+
 void SaveCapture(Device* d, const Swapchain& sc, const std::vector<uint8_t>& clean, const std::vector<std::vector<uint8_t>>& broken,
                  const std::vector<Variant>& used) {
   const Config& c = config();
@@ -1144,6 +1207,7 @@ void SaveCapture(Device* d, const Swapchain& sc, const std::vector<uint8_t>& cle
   std::string cleanRel = "clean/" + c.app + "/" + std::to_string(moment) + ".png";
   MakeDirs(c.out + "/clean/" + c.app);
   WritePng(c.out + "/" + cleanRel, w, h, 3, clean.data());
+  NoteFrame(d, cleanRel);
   int kept = 0;
   std::string manifest = c.out + "/manifest.jsonl";
   FILE* m = std::fopen(manifest.c_str(), "a");
@@ -1188,6 +1252,59 @@ void SaveCapture(Device* d, const Swapchain& sc, const std::vector<uint8_t>& cle
   Log("frame %llu: %zu broken copies, %d visible and kept", (unsigned long long)d->frame, broken.size(), kept);
 }
 
+// Every capture: which frame of the app each moment is, so a later run can locate the same frames.
+void NoteFrame(Device* d, const std::string& cleanRel) {
+  const Config& c = config();
+  if (FILE* f = std::fopen((c.out + "/frames.jsonl").c_str(), "a")) {
+    std::fprintf(f, "{\"moment\": %ld, \"frame\": %llu, \"clean\": %s}\n", d->captured, (unsigned long long)d->frame, Json(cleanRel).c_str());
+    std::fclose(f);
+  }
+}
+
+void SaveClean(Device* d, const Swapchain& sc, const std::vector<uint8_t>& clean) {
+  const Config& c = config();
+  std::string rel = "clean/" + c.app + "/" + std::to_string(d->captured) + ".png";
+  MakeDirs(c.out + "/clean/" + c.app);
+  WritePng(c.out + "/" + rel, int(sc.extent.width), int(sc.extent.height), 3, clean.data());
+  NoteFrame(d, rel);
+}
+
+// locate/<frame>/: the frame, the frame without each draw (when leaving it out changes anything), and draws.json
+void SaveLocate(Device* d, const Swapchain& sc, const std::vector<uint8_t>& clean, const std::vector<std::vector<uint8_t>>& without,
+                const std::vector<Variant>& used) {
+  const Config& c = config();
+  int w = int(sc.extent.width), h = int(sc.extent.height);
+  std::string dir = c.out + "/locate/" + std::to_string(d->frame);
+  MakeDirs(dir);
+  WritePng(dir + "/frame.png", w, h, 3, clean.data());
+  std::string list;
+  int changedDraws = 0;
+  for (size_t k = 0; k < without.size(); k++) {
+    const Variant& v = used[k];
+    if (!v.applied || without[k].empty()) continue;
+    long changed = 0;
+    for (size_t i = 0; i < size_t(w) * h; i++) {
+      int dd = 0;
+      for (int ch = 0; ch < 3; ch++) dd = std::max(dd, std::abs(int(clean[i * 3 + ch]) - int(without[k][i * 3 + ch])));
+      if (dd > 12) changed++;
+    }
+    if (changed) {
+      WritePng(dir + "/without-" + std::to_string(k) + ".png", w, h, 3, without[k].data());
+      changedDraws++;
+    }
+    char buf[1024];
+    std::snprintf(buf, sizeof buf, "%s{\"index\": %zu, \"call\": %s, \"count\": %u, \"pipeline\": %d, \"pipeline_name\": %s, \"sets\": %s, \"changed\": %ld}",
+                  list.empty() ? "" : ",\n  ", k, Json(v.call).c_str(), v.count, v.pipeline, v.pipelineName.empty() ? "null" : Json(v.pipelineName).c_str(),
+                  v.sets.empty() ? "[]" : v.sets.c_str(), changed);
+    list += buf;
+  }
+  if (FILE* f = std::fopen((dir + "/draws.json").c_str(), "w")) {
+    std::fprintf(f, "[\n  %s\n]\n", list.c_str());
+    std::fclose(f);
+  }
+  Log("frame %llu: drawn again without each of its %zu draws; %d of them change it", (unsigned long long)d->frame, without.size(), changedDraws);
+}
+
 // A submit in a form both vkQueueSubmit and vkQueueSubmit2 fit: the command buffers of each batch, and ways to submit
 // only the app's waits, other command buffers with no waits or signals, and the app's own work without its waits.
 struct SubmitOps {
@@ -1213,7 +1330,19 @@ VkResult CaptureSubmit(Device* d, VkQueue queue, const SubmitOps& ops) {
     }
   }
   auto sc = d->swapchains.find(d->lastAcquired);
-  if (swap.empty() || !ops.plain || sc == d->swapchains.end() || sc->second.images.empty()) return ops.passThrough();
+  bool readable = sc != d->swapchains.end() && !sc->second.images.empty();
+  if (swap.empty() && d->capturing && d->variants.empty() && !config().shadowAll && readable) {
+    // clean frames only (FRAMEHOUND_VARIANTS=0): the app's own submit, then read the frame back
+    VkResult r = ops.passThrough();
+    std::vector<uint8_t> clean;
+    if (r == VK_SUCCESS && d->QueueWaitIdle(queue) == VK_SUCCESS && ReadImage(d, queue, sc->second, clean)) {
+      SaveClean(d, sc->second, clean);
+      d->captured++;
+    }
+    d->capturing = false;
+    return r;
+  }
+  if (swap.empty() || !ops.plain || !readable) return ops.passThrough();
 
   if (!d->fence) {
     VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
@@ -1249,10 +1378,12 @@ VkResult CaptureSubmit(Device* d, VkQueue queue, const SubmitOps& ops) {
   VkResult r = ops.ownWithoutWaits();
   std::vector<uint8_t> clean;
   if (r == VK_SUCCESS && d->QueueWaitIdle(queue) == VK_SUCCESS && ReadImage(d, queue, sc->second, clean)) {
-    SaveCapture(d, sc->second, clean, broken, used);
+    if (d->locating) SaveLocate(d, sc->second, clean, broken, used);
+    else SaveCapture(d, sc->second, clean, broken, used);
     d->captured++;
   }
   d->capturing = false;
+  d->locating = false;
   return r;
 }
 
@@ -1452,7 +1583,7 @@ PFN_vkVoidFunction DeviceFunction(const char* name) {
   FH_HOOK(FreeCommandBuffers) FH_HOOK(DestroyCommandPool) FH_HOOK(ResetCommandPool) FH_HOOK(ResetCommandBuffer)
   FH_HOOK(BeginCommandBuffer) FH_HOOK(EndCommandBuffer) FH_HOOK(CmdBindPipeline) FH_HOOK(CmdDraw)
   FH_HOOK(CmdDrawIndexed) FH_HOOK(CmdExecuteCommands) FH_HOOK(CreateDescriptorSetLayout) FH_HOOK(AllocateDescriptorSets)
-  FH_HOOK(CmdBindDescriptorSets) FH_HOOK(CmdDrawIndirect) FH_HOOK(CmdDrawIndexedIndirect)
+  FH_HOOK(CmdBindDescriptorSets) FH_HOOK(CmdDrawIndirect) FH_HOOK(CmdDrawIndexedIndirect) FH_HOOK(SetDebugUtilsObjectNameEXT)
   return GeneratedCommand(name);
 }
 

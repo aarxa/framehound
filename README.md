@@ -122,7 +122,9 @@ where the browser takes minutes. A model trained on the first 80% of those frame
 Khronos validation layer finds no errors added by the layer. It also runs on vkcube, Khronos's Vulkan sample, in a
 real window, though vkcube records its command buffers once and reuses them. It also works on GFXReconstruct
 replays, which come out pixel for pixel like the live run, so a session recorded once can be broken again and again
-without the app. See [native/README.md](native/README.md).
+without the app. Watch works there too (`native/locate.py`). On the test scene with a bug shipped in one draw, the
+broken draw was named first on every flagged frame for three of four bugs. The fourth, a small inside-out cube, was
+missed. See [native/README.md](native/README.md).
 
 **What doesn't work: one model for every app.** framehound started as a single model meant to spot glitches in any
 game's screenshot. It doesn't get there:
