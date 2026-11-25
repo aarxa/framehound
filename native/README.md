@@ -87,7 +87,31 @@ re-records its command buffer every frame. Options try the layer on what engines
 
 ## Results so far
 
-RESULTS_PLACEHOLDER
+**On the test scene** (`fh_scene` at 768×432, through MoltenVK on an Apple M4 Pro):
+- **Fast.** 140 captured frames with ten broken copies each gave 825 visible broken frames of all six kinds, in about
+  ten seconds. The browser capture takes minutes for that many.
+- **Learnable.** Trained on the first 80% of those frames and tested on the last 20%, a later stretch of the camera's
+  orbit, the model scores AUROC 0.93 (95% CI 0.89–0.97). It catches 80% of glitches when 5% of clean frames are
+  flagged:
+
+  | Glitch | Caught |
+  |---|---|
+  | `additive_blend` | 100% (18) |
+  | `missing_draw` | 90% (39) |
+  | `missing_texture` | 90% (40) |
+  | `dropped_faces` | 75% (20) |
+  | `inside_out` | 64% (36) |
+  | `depth_test_off` | 12% (8) |
+
+  Only 28 clean frames were held out, so the 5% threshold is rough.
+- **Clean.** With the Khronos validation layer loaded under it, the layer adds no validation errors. This holds in
+  every mode of the scene: direct and indirect draws, secondary command buffers, `vkQueueSubmit2` and timeline
+  semaphores.
+
+**On vkcube**, Khronos's Vulkan sample, running in a real window through Metal: vkcube records its command buffers
+once at startup, so it needs `FRAMEHOUND_SHADOW_ALL=1`. Eight captured frames gave 25 visible broken frames: the cube
+inside out (with the logo mirrored on the inner walls), glowing, or missing triangles. With only one object, the cube
+can't show the other glitches. Without it the frame is blank, and there is nothing behind it to draw over.
 
 ## Not done yet
 
