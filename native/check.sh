@@ -11,8 +11,8 @@ if [ "$(uname)" = Darwin ]; then
 fi
 vuids() { grep -o "VUID-[A-Za-z0-9_-]*" | sort -u || true; }
 # no errors only means something if the validation layer is really there
-if ! VK_LOADER_DEBUG=layer VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation "$build/fh_scene" --frames 1 2>&1 \
-    | grep -q 'Insert instance layer "VK_LAYER_KHRONOS_validation"'; then
+loaded=$(VK_LOADER_DEBUG=layer VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation "$build/fh_scene" --frames 1 2>&1 || true)
+if ! grep -q 'Insert instance layer "VK_LAYER_KHRONOS_validation"' <<< "$loaded"; then
   echo "the Khronos validation layer didn't load"
   exit 1
 fi
