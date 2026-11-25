@@ -1,14 +1,21 @@
 # framehound
 
-Finds rendering glitches in screenshots of a WebGL game or app, after learning what that app looks like broken.
+Finds rendering glitches in a WebGL game or app after learning what that app looks like broken, and points to the
+draw call that drew them.
 
 You point it at the app. It plays the app in headless Chrome, freezes it at moments along the way, and redraws each
 frame with one draw call broken: a texture that never loaded, a part that never got drawn, garbage vertices, lost
 texture coordinates and so on. The frame is drawn once clean and once broken, so the broken pixels are known exactly.
 After about ten minutes of this it has around a thousand labelled frames of the app's own content, and trains a detector
-on them. Then it checks new screenshots of the app.
+on them.
 
-It works with any WebGL engine and doesn't need the app's source: it wraps WebGL in the page.
+Then it watches new builds. `framehound watch` plays a build the same way and checks every frame it stops on. For each
+frame the model flags, it finds the draw calls behind the flagged pixels, by drawing the frame again with each draw
+left out. It writes a report listing each one's shader, textures and size, with a picture of what it draws. It can
+also check plain screenshots.
+
+It doesn't need the app's source: it wraps WebGL in the page. There is also a Vulkan version of the injector for
+native apps, in [`native/`](native/).
 
 ![Test frames from later in the play sessions, never trained on: frame, the truly broken pixels (red), what the model flagged (cyan)](docs/games-predictions.jpg)
 
@@ -80,6 +87,34 @@ Two more cases were left out:
 - [#26110](https://github.com/mrdoob/three.js/issues/26110), the SVG example: it only draws when the mouse moves,
   which the injector can't freeze yet.
 
+**Watch mode.** Watching the broken r161 release of the progressive-lightmap example, with the model learned on
+r160, every frame is flagged. The first two draws named are the ground and the object, both drawn with the broken
+lightmap shader (they sample the 1024×1024 lightmap). Finding them takes 0.2 s per frame.
+
+To measure naming, watch played HexGL four times for 12 minutes and broke a known draw on about half the frames
+(`--plant 0.5`). Over the four runs, the model flagged 281 of 372 broken frames (76%) and 24 of 351 clean ones
+(7%). For the 79 flagged frames of the last run, this is how often the broken draw came first:
+
+| Broken draw | Frames | Named first | In the top three |
+|---|---|---|---|
+| a draw to the frame itself | 41 | **73%** | 80% |
+| the same, ranked by the truly broken pixels instead of the model's heatmap | 41 | 90% | 95% |
+| a draw to a shadow map or another offscreen target | 18 | 0% | 22% |
+| a draw that was left out | 20 | can't be named | |
+
+- **Offscreen draws.** A draw into a shadow map only shows through the surfaces that receive the shadow. Leaving it out
+  changes those surfaces more than the glitch did, so it is rarely pinned down.
+- **Draws that were left out** never drew anything, so there's nothing to name.
+- **The heatmap's cost.** Where the model points loses 17 points against the truly broken pixels, so a better heatmap
+  means better naming. A plain box around the flagged area does worse still: 34% first, against 51% with the heatmap
+  on the same frames.
+
+**The Vulkan layer** (`native/`) breaks draw calls in native Vulkan apps the same way, in six of the eleven ways so
+far. On a small Vulkan test scene it wrote 825 visible broken frames from 140 captured frames in about ten seconds,
+where the browser takes minutes. A model trained on the first 80% of those frames scores AUROC 0.93 on the rest. The
+Khronos validation layer finds no errors added by the layer. It also runs on vkcube, Khronos's Vulkan sample, in a
+real window, though vkcube records its command buffers once and reuses them. See [native/README.md](native/README.md).
+
 **What doesn't work: one model for every app.** framehound started as a single model meant to spot glitches in any
 game's screenshot. It doesn't get there:
 
@@ -92,6 +127,19 @@ Many glitches only look wrong if you know what the app is meant to look like. A 
 another, a glowing surface or an inside-out mesh can all be intended in some other app. Published work that does
 well gets around this the same way framehound now does: EA SEED trained per game environment, and NetEase injected
 bugs into each game it tested.
+
+**Limits.**
+- **One app at a time.** A model knows one app. A new app needs its own ten minutes of play and about twenty of
+  training, since one model for every app doesn't work (above).
+- **Glitches you can see at a glance.** Glitches smaller than about 0.2% of the frame are missed. The missing caps
+  above covered 0.075%.
+- **Single frames.** Flicker, popping, and anything that only looks wrong over time are out of reach. So are animation
+  and physics bugs: a character in the wrong pose still looks like a pose.
+- **A draw that never happened can't be named.** Watch lists the draws that drew the flagged area. For a missing
+  draw, those are whatever was behind it.
+- **Pages that draw only on input** can't be frozen yet. The three.js SVG example draws only when the mouse moves.
+- **Tested on three.js.** HexGL, Edelweiss and the examples are all three.js apps. The injector wraps WebGL itself,
+  but other engines haven't been tried.
 
 **Caveats.**
 - The test glitches are injected, not taken from the games' bug histories. They are real failure modes of real
@@ -111,9 +159,18 @@ python3 -m venv .venv && .venv/bin/pip install -r train/requirements.txt
 # learn an app: about 10 minutes of play, then training (~20 min on an Apple M-series GPU)
 node framehound.mjs learn https://example.com/my-webgl-app/ --minutes 10
 
+# watch a new build: play it for 5 minutes, check every frame, and name the draw calls behind each flagged one
+node framehound.mjs watch models/my-webgl-app https://example.com/my-webgl-app-new-build/ --minutes 5
+
 # check screenshots: a verdict, a glitch score, the likely kind of glitch, and a heatmap image
 node framehound.mjs check models/my-webgl-app shot1.png shot2.png
 ```
+
+`watch` writes `watch/<app>-<time>/report.html`. Each flagged frame shows the frame with the flagged area boxed, the
+heatmap, and the draws found there, best match first. Each draw comes with a picture of what it draws, its shader
+(three.js names its shaders), the textures it samples with their file names, its triangle count, and whether it
+draws to the screen or to an offscreen target such as a shadow map. `--plant 0.5` tests watch itself: it breaks a known
+draw on half the frames and reports how many were caught and named.
 
 `learn` writes `models/<app>/`:
 - `model.pt`
@@ -158,6 +215,11 @@ node framehound.mjs learn '/HexGL/index.html?controlType=0&hud=0&godmode=1' --id
 - **Keeps only visible glitches.** A glitch counts only if at least 0.1% of the frame changes plainly, in one connected
   patch, and the frame doesn't go blank. Faint changes such as a bloom halo, or a black frame, which looks like a clean
   empty scene, are thrown away.
+- **Finds the draws behind a flagged area (watch).** The frozen frame is drawn again once per draw call with that draw
+  left out, and the pixels that change are that draw's. Draws are ranked by how much of the model's heatmap they
+  explain times how much of what they draw is flagged. That puts the object itself ahead of the ground behind it.
+  Draws that only reach the frame through a later pass count half: draws into shadow maps and other offscreen targets
+  of another size, and full-screen passes. A replayed frame takes 0.1–0.4 s for all of HexGL's ~30 draws.
 
 The eleven kinds of breakage:
 
@@ -185,9 +247,12 @@ broken and which pixels.
 
 | Path | What it is |
 |---|---|
-| `framehound.mjs` | the `learn` and `check` commands |
+| `framehound.mjs` | the `learn`, `watch` and `check` commands |
 | `generator/inject/glitch-gl.js` | the injector |
 | `generator/capture.mjs` | drives pages with the injector and saves clean frames, broken frames and masks |
+| `generator/watch.mjs` | plays a build, checks each frame with the model, finds the draws behind flagged frames, writes the report |
+| `generator/serve.mjs` | the static server for pages on disk |
+| `native/` | the Vulkan layer (C++) and a test scene |
 | `generator/apps/` | page lists and game drivers |
 | `train/` | training (`train.py`), checking screenshots (`check.py`) and the evaluations |
 | `scripts/` | fetching test data, filtering and splitting captured data |

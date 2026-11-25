@@ -268,7 +268,13 @@
     const p = drawParams(name, args);
     const info = programInfo(gl, gl.getParameter(gl.CURRENT_PROGRAM));
     const state = { depth: gl.isEnabled(gl.DEPTH_TEST), blend: gl.isEnabled(gl.BLEND) };
-    return { index: k, gl, name, count: p.count, program: info?.id ?? 0, eligible: eligible(gl, info, p, state) };
+    // where it draws: the screen, or an offscreen target of this size (a shadow map, a post-processing buffer...)
+    const fb = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+    const vp = fb ? gl.getParameter(gl.VIEWPORT) : null;
+    return {
+      index: k, gl, name, count: p.count, program: info?.id ?? 0, eligible: eligible(gl, info, p, state),
+      target: fb ? [vp[2], vp[3]] : null, fullscreen: p.count <= 6,
+    };
   }
 
   function wrap(name, orig, isDraw) {
@@ -1051,6 +1057,9 @@
   // With the model's heatmap (`heat`: a coarse grid over the frame), a draw is ranked by the share of the heat it
   // explains times the mean heat over what it draws, so a full-screen pass or the ground behind an object ranks below
   // the object itself. Without one, the same is done with the box (x0, y0, x1, y1 in frame pixels) as the heat.
+  // Draws that only change the frame through a later pass count half: those to an offscreen target of another size
+  // than the canvas (a shadow map, a bloom buffer), and full-screen passes. A shadow map's draw of the track changes
+  // the track's shading almost as much as the track's own draw, but the track's own draw is what shows.
   function locate({ box, heat = null, pad = 6, top = 3 }) {
     if (!clean) return { ok: false, reason: 'not settled' };
     const t0 = realNow();
@@ -1067,7 +1076,13 @@
     const cellH = heat ? outH / heat.rows : 1;
     const heatAt = (x, y) => heat.values[Math.min(heat.rows - 1, (y / cellH) | 0) * heat.cols + Math.min(heat.cols - 1, (x / cellW) | 0)];
     const heatTotal = heat ? heat.values.reduce((s, v) => s + v, 0) * cellW * cellH : 0;
+    // with a planted glitch, the truly broken pixels too, to measure the ranking apart from the model's heatmap
+    const cleanPix = planted ? pixels(clean) : null;
+    const isTrue = (i) => Math.max(Math.abs(cleanPix[i] - refPix[i]), Math.abs(cleanPix[i + 1] - refPix[i + 1]), Math.abs(cleanPix[i + 2] - refPix[i + 2])) > DIFF_THRESHOLD;
+    let trueTotal = 0;
+    if (cleanPix) for (let i = 0; i < refPix.length; i += 4) if (isTrue(i)) trueTotal++;
     const found = [];
+    const stats = [];
     for (const d of cleanDraws) {
       skip = d.index;
       try {
@@ -1079,6 +1094,7 @@
       let inside = 0;
       let total = 0;
       let warm = 0;
+      let onTrue = 0;
       let bx0 = outW;
       let by0 = outH;
       let bx1 = -1;
@@ -1089,6 +1105,7 @@
           if (dd <= DIFF_THRESHOLD) continue;
           total++;
           if (heat) warm += heatAt(x, y);
+          if (cleanPix && isTrue(i)) onTrue++;
           if (x >= x0 && x < x1 && y >= y0 && y < y1) inside++;
           if (x < bx0) bx0 = x;
           if (x > bx1) bx1 = x;
@@ -1097,10 +1114,21 @@
         }
       }
       if (!settleBack(ref)) return { ok: false, reason: 'the frame did not come back after leaving a draw out' };
+      if (total) {
+        const canvas = mainCanvas();
+        stats.push({
+          index: d.index, total, inside, warm: +warm.toFixed(1), on_true: onTrue, fullscreen: d.fullscreen && total > 0.5 * outW * outH,
+          direct: !d.target || (canvas && d.target[0] === canvas.width && d.target[1] === canvas.height),
+        });
+      }
       if (heat ? warm > 0 : inside) {
         const coverage = heat ? warm / heatTotal : inside / area;
         const focus = heat ? warm / total : inside / total;
-        found.push({ index: d.index, inside, total, coverage, focus, score: coverage * focus, whole_frame: total > 0.5 * outW * outH, bbox: [bx0, by0, bx1 + 1, by1 + 1] });
+        const canvas = mainCanvas();
+        const direct = !d.target || (canvas && d.target[0] === canvas.width && d.target[1] === canvas.height);
+        const pass = d.fullscreen && total > 0.5 * outW * outH; // a quad over most of the frame: a full-screen pass
+        const weight = (direct ? 1 : 0.5) * (pass ? 0.5 : 1);
+        found.push({ index: d.index, inside, total, coverage, focus, score: coverage * focus * weight, direct, whole_frame: total > 0.5 * outW * outH, bbox: [bx0, by0, bx1 + 1, by1 + 1] });
       }
     }
     found.sort((a, b) => b.score - a.score);
@@ -1131,6 +1159,7 @@
     const back = same(ref, grab());
     return {
       ok: true, box: [x0, y0, x1, y1], tried, drew_in_box: found.length, draws, back,
+      stats, area, heat_total: heatTotal, true_total: trueTotal,
       ranks: found.map((f) => f.index), seconds: +((realNow() - t0) / 1000).toFixed(1),
     };
   }

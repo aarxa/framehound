@@ -160,6 +160,11 @@ for (let m = 0; m < maxMoments && (Date.now() - t0) / 60000 < minutes; m++) {
         draws.push({ ...rest, picture: rel(pic) });
       }
       entry.located = { box: loc.box, tried: loc.tried, drew_in_box: loc.drew_in_box, seconds: loc.seconds, back: loc.back, draws };
+      // every draw's numbers, for comparing ways of ranking them
+      entry.located.stats = loc.stats;
+      entry.located.area = loc.area;
+      entry.located.heat_total = loc.heat_total;
+      if (planted) entry.located.true_total = loc.true_total;
       if (planted) {
         const r = loc.ranks.indexOf(planted.draw);
         planted.rank = r < 0 ? null : r + 1;
@@ -211,6 +216,7 @@ await writeFile(join(outDir, 'report.json'), JSON.stringify({ ...summary, frames
 await writeFile(join(outDir, 'report.html'), html(summary, checked));
 console.log(`\n${checked.length} frames checked, ${flagged.length} flagged. Report: ${join(outDir, 'report.html')}`);
 if (summary.test) console.log(JSON.stringify(summary.test));
+process.exit(0); // the work is done; don't wait on handles Chrome or the checker may leave open
 
 function html(s, list) {
   const esc = (x) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
