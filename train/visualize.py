@@ -10,7 +10,7 @@ import torch
 from PIL import Image, ImageDraw
 
 from data import GlitchFrames
-from train import build_model
+from train import build_model, pick_device
 
 TILE = 200  # tile height; width follows the frames' shape
 
@@ -31,7 +31,7 @@ def main():
     ap.add_argument("--seed", type=int, default=3)
     args = ap.parse_args()
 
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    device = pick_device()
     ck = torch.load(args.ckpt, map_location="cpu", weights_only=False)
     types = ck["types"]
     model = build_model(len(types), ck["encoder"], pretrained=False)

@@ -1,38 +1,160 @@
 # framehound
 
-A model that looks at a single frame from a game or 3D app and finds rendering glitches, with no reference image needed.
+Finds rendering glitches in screenshots of a WebGL game or app, after learning what that app looks like broken.
 
-It learns from glitches injected on purpose: each sample is the same frame rendered twice, once clean and once broken, so the pixels the glitch changed are known exactly.
+You point it at the app. It plays the app in headless Chrome, freezes it at moments along the way, and redraws each
+frame with one draw call broken: a texture that never loaded, a part that never got drawn, garbage vertices, lost
+texture coordinates and so on. The frame is drawn once clean and once broken, so the broken pixels are known exactly.
+After about ten minutes of this it has a few thousand labelled frames of the app's own content, and trains a detector
+on them. Then it checks new screenshots of the app.
 
-Early days: the data generator works; the model comes next.
+It works with any WebGL engine and doesn't need the app's source: it wraps WebGL in the page.
 
-## Generator
+![Test frames from later in the play sessions, never trained on: frame, the truly broken pixels (red), what the model flagged (cyan)](docs/games-predictions.jpg)
 
-Random three.js scenes built from real CC0 models under HDRI lighting, rendered headless in Chrome. Seven glitch types so far:
+*Frames from later in the play of two open-source games, which the model never trained on. Each row shows the frame, the
+truly broken pixels (red) and what the model flagged (cyan). Rows with red text are misses.*
 
-| Glitch | What breaks |
+## Results
+
+**On two real games**, each played for 150 moments: a model trained on the first 80% of the moments and tested on the
+last 20%. The test views differ from the nearest training view on about half their pixels.
+
+| AUROC on later play (0.5 = chance) | Trained on other apps only | Trained on the game's earlier play | Glitches caught when 5% of clean frames are flagged |
+|---|---|---|---|
+| [HexGL](https://github.com/BKcore/HexGL), a racing game | 0.58 | **0.93** (95% CI 0.89–0.96) | 80% |
+| [Edelweiss](https://github.com/felixmariotto/Edelweiss), a platformer | 0.56 | **0.81** (0.71–0.89) | 34% |
+
+On HexGL it catches every missing draw, 93% of missing textures, 91% of lost texture coordinates and 82% of NaN colours
+at that setting. Edelweiss is darker and blockier, and its glitches are often small.
+
+**On three.js examples** the same holds: on five pages never trained on, a model trained on 145 other pages scores 0.67;
+models trained on each page's own earlier frames score 0.89–0.93.
+
+**What doesn't work: one model for every app.** framehound started as a single model meant to spot glitches in any
+game's screenshot. It doesn't get there:
+
+| One model for every app | AUROC |
 |---|---|
-| `missing_texture` | a texture fails to load; the engine shows magenta/black checker, magenta or black |
-| `exploded_vertices` | a few vertices get garbage positions and the mesh shoots spikes |
-| `z_fighting` | two surfaces at the same depth flicker through each other |
-| `black_object` | shading breaks (NaN normals, failed shader) and the object renders black |
-| `inside_out` | culling/winding is flipped and you see the object's back faces |
-| `shadow_acne` | the shadow bias is wrong and surfaces shadow themselves in stripes and patches |
-| `stretched_texture` | texture coordinates are corrupted and the texture smears into streaks or noise |
+| Trained on 145 three.js examples, tested on 27 others | 0.62 |
+| Trained on synthetic scenes, tested on real game screenshots ([VideoGameQA-Bench](https://huggingface.co/datasets/taesiri/VideoGameQA-Bench), rendering glitches vs clean frames) | about 0.5 |
+
+Many glitches only look wrong if you know what the app is meant to look like. A missing wall, an object drawn through
+another, a glowing surface or an inside-out mesh can all be intended in some other app. Published work that does
+well gets around this the same way framehound now does: EA SEED trained per game environment, and NetEase injected
+bugs into each game it tested.
+
+**Caveats.**
+- The test glitches are injected, not taken from the games' bug histories. They are real failure modes of real
+  renderers, but they are ours.
+- Each result is one training run, with about 30 clean test frames per game.
+- HexGL's laps revisit the same track. That's fair for a tool that learns one game, but easier than a game whose
+  content never repeats.
+
+## Use it
+
+Needs Node 18+, Google Chrome, and Python 3.10+ with PyTorch.
 
 ```bash
 npm install
-node scripts/fetch-assets.mjs                          # CC0 models and HDRIs from Poly Haven (~230 MB, into assets/)
-npm run generate -- --count 100 --out out/batch1     # clean / glitched / mask PNGs + manifest.jsonl
-node generator/sheet.mjs out/batch1                    # contact sheet for checking them by eye
+python3 -m venv .venv && .venv/bin/pip install -r train/requirements.txt
+
+# learn an app: about 10 minutes of play, then training (~20 min on an Apple M-series GPU)
+node framehound.mjs learn https://example.com/my-webgl-app/ --minutes 10
+
+# check screenshots: a verdict, a glitch score, the likely kind of glitch, and a heatmap image
+node framehound.mjs check models/my-webgl-app shot1.png shot2.png
 ```
 
-Uses the installed Google Chrome through Playwright.
+`learn` writes `models/<app>/`:
+- `model.pt`
+- `report.json`: how it did on the held-out later views, and the score threshold that flags 5% of clean frames, which
+  `check` uses
+- `examples.png`: a sheet like the one above
+
+Pages on disk can be served with `--serve folder` and a url starting with `/`.
+
+**Games need a driver**, a small script that gets past the menus and plays between moments. Without one, framehound just
+drags the camera a little. These are the drivers used above:
+
+```js
+// generator/apps/drivers/hexgl.mjs (shortened)
+export async function start(page) {
+  await page.click('#start');
+  await page.click('#step-2');
+  await page.waitForFunction(() => document.getElementById('step-4')?.style.display === 'block');
+  await page.keyboard.down('ArrowUp'); // full throttle
+}
+export async function between(page, gap) {
+  /* steer left and right at random for `gap` seconds */
+}
+```
+
+```bash
+node framehound.mjs learn '/HexGL/index.html?controlType=0&hud=0&godmode=1' --id hexgl --serve sources \
+  --driver generator/apps/drivers/hexgl.mjs
+```
+
+## How it works
+
+`generator/inject/glitch-gl.js` is loaded into the page before the page's own scripts:
+
+- **Freezes the page.** It controls `performance.now`, `Date`, `Math.random` and `requestAnimationFrame`. Time spent
+  frozen is taken out afterwards, so the game behaves as if paused.
+- **Records one frame.** Every WebGL call in one frame is recorded, with copies of the arrays and images passed in.
+- **Replays it, broken.** The recorded frame is replayed with one draw call broken, and every bit of GL state the glitch
+  touched is put back. A replay holds the frame still even when the app moves things a fixed amount each frame. It's
+  used only when two replays match each other and the app's own frame; otherwise the injector steps the app's own frame
+  loop until the frame stops changing.
+- **Keeps only visible glitches.** A glitch counts only if at least 0.1% of the frame changes plainly, in one connected
+  patch, and the frame doesn't go blank. Faint changes such as a bloom halo, or a black frame, which looks like a clean
+  empty scene, are thrown away.
+
+The ten kinds of breakage:
+
+| Glitch | What happens to the draw |
+|---|---|
+| `missing_texture` | its base texture is swapped for a fallback: magenta/black checker, flat magenta, black, white or grey checker |
+| `missing_draw` | it never happens: a missing wall, a body without a head |
+| `exploded_vertices` | a few vertices get garbage positions and drag spikes across the frame |
+| `broken_indices` | its index data is corrupted, so triangles join the wrong vertices |
+| `lost_uvs` | its texture coordinates are lost and the surface takes one texel's colour |
+| `stretched_uvs` | its texture coordinates are squashed and the texture smears |
+| `inside_out` | culling is flipped and the inside shows |
+| `depth_test_off` | it draws over whatever should hide it |
+| `additive_blend` | a leaked blend mode makes it glow and turn see-through |
+| `nan_color` | its material colour becomes NaN or zero, so it goes black (and NaNs can spread through post effects) |
+
+On WebGL 1, which can't read buffers back, the injector keeps a copy of each buffer as the app uploads it. Tested on
+three.js from r53 to r170.
+
+The model is a U-Net with a ResNet-34 encoder and a glitch-type head (`train/`). It predicts both whether a frame is
+broken and which pixels.
+
+## In this repository
+
+| Path | What it is |
+|---|---|
+| `framehound.mjs` | the `learn` and `check` commands |
+| `generator/inject/glitch-gl.js` | the injector |
+| `generator/capture.mjs` | drives pages with the injector and saves clean frames, broken frames and masks |
+| `generator/apps/` | page lists and game drivers |
+| `train/` | training (`train.py`), checking screenshots (`check.py`) and the evaluations |
+| `scripts/` | fetching test data, filtering and splitting captured data |
+| `generator/run.mjs`, `generator/scene.js` | the first approach: random three.js scenes built from Poly Haven models, broken in seven ways |
+| `labels/videogameqa.json` | which VideoGameQA-Bench glitch screenshots show rendering glitches (first pass, not yet checked by hand) |
 
 ## Credits
 
-3D models and HDRIs: [Poly Haven](https://polyhaven.com) (CC0).
+- [HexGL](https://github.com/BKcore/HexGL) by Thibaut Despoulain (MIT).
+- [Edelweiss](https://github.com/felixmariotto/Edelweiss) by Félix Mariotto (CC0).
+- The three.js examples (MIT).
+- 3D models and HDRIs for the scene generator: [Poly Haven](https://polyhaven.com) (CC0).
+- Test sets:
+  - [VideoGameQA-Bench](https://huggingface.co/datasets/taesiri/VideoGameQA-Bench) (Taesiri et al., CC BY 4.0)
+  - [GlitchBench](https://arxiv.org/abs/2312.05291)
+  - three.js's own reference screenshots
 
 ## License
 
-Code: MIT. The dataset and model will carry their own licenses when released.
+Code: MIT. Games and assets keep their own licenses.

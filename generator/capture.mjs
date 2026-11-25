@@ -5,6 +5,7 @@
 // runs on and the camera is dragged a little, so the moments show different views.
 //
 //   node generator/capture.mjs --apps generator/apps/test.txt --out out/gl-check [--moments 3] [--per-moment 10]
+//   node generator/capture.mjs --url https://example.com/game.html [--id mygame] [--driver my-driver.mjs] --out ...
 //        [--warmup 6] [--gap 3] [--workers 4] [--serve sources/threejs-r170] [--types missing_texture,inside_out]
 //        [--width 768 --height 432] [--min-strong 0.001] [--app-timeout 180]
 //
@@ -19,7 +20,7 @@ import { chromium } from 'playwright';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const argv = process.argv.slice(2);
 const args = Object.fromEntries(argv.reduce((acc, a, i, all) => (a.startsWith('--') ? [...acc, [a.slice(2), all[i + 1]?.startsWith('--') ? true : all[i + 1] ?? true]] : acc), []));
-const outDir = join(root, args.out ?? 'out/gl-check');
+const outDir = resolve(root, String(args.out ?? 'out/gl-check'));
 const moments = Number(args.moments ?? 3);
 const perMoment = Number(args['per-moment'] ?? 10);
 const warmup = Number(args.warmup ?? 6);
@@ -56,8 +57,11 @@ if (args.serve) {
   base = `http://127.0.0.1:${server.address().port}`;
 }
 
-const apps = (await readFile(join(root, args.apps ?? 'generator/apps/test.txt'), 'utf8'))
-  .split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'))
+// one page from the command line (--url, --id, --driver), or a list of them (--apps)
+const lines = args.url
+  ? [`${args.id ?? 'app'} ${args.url}${args.driver ? ` ${args.driver}` : ''}`]
+  : (await readFile(resolve(root, args.apps ?? 'generator/apps/test.txt'), 'utf8')).split('\n');
+const apps = lines.map((l) => l.trim()).filter((l) => l && !l.startsWith('#'))
   .map((l) => {
     const [id, url, driver] = l.split(/\s+/);
     if (url.startsWith('/') && !base) throw new Error(`${id}: a local page needs --serve`);
@@ -85,7 +89,7 @@ let done = 0;
 
 async function capture(app, page, report, split) {
   // a game's driver gets it past its menus and plays it between moments; other pages get a camera drag
-  const driver = app.driver ? await import(pathToFileURL(join(root, app.driver)).href) : null;
+  const driver = app.driver ? await import(pathToFileURL(resolve(root, app.driver)).href) : null;
   await page.addInitScript({ path: injector });
   await page.goto(app.url, { waitUntil: 'load', timeout: 60000 });
   await sleep(warmup);

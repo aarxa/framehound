@@ -20,7 +20,7 @@ from PIL import Image, ImageDraw
 
 from eval_clean import overlay, separation
 from eval_glitchbench import prepare
-from train import build_model
+from train import build_model, pick_device
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -61,7 +61,7 @@ def main():
     if args.half == "locked" and not args.final:
         raise SystemExit("the locked half is scored once, at the end; pass --final if this is that time")
 
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    device = pick_device()
     ck = torch.load(args.ckpt, map_location="cpu", weights_only=False)
     types = ck["types"]
     model = build_model(len(types), ck["encoder"], pretrained=False)

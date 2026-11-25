@@ -19,7 +19,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw
 
-from train import build_model
+from train import build_model, pick_device
 
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
@@ -53,7 +53,7 @@ def main():
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    device = pick_device()
     ck = torch.load(args.ckpt, map_location="cpu", weights_only=False)
     types = ck["types"]
     model = build_model(len(types), ck["encoder"], pretrained=False)

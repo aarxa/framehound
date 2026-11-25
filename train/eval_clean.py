@@ -26,7 +26,7 @@ import torch
 from PIL import Image, ImageDraw
 
 from eval_glitchbench import category, prepare
-from train import auroc, build_model
+from train import auroc, build_model, pick_device
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -86,7 +86,7 @@ def main():
                     help="a captured dataset's manifest.jsonl; clean screenshots of pages it trained on are left out")
     args = ap.parse_args()
 
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    device = pick_device()
     ck = torch.load(args.ckpt, map_location="cpu", weights_only=False)
     types = ck["types"]
     model = build_model(len(types), ck["encoder"], pretrained=False)

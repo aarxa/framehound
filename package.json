@@ -2,9 +2,10 @@
   "name": "framehound",
   "version": "1.0.0",
   "scripts": {
-    "generate": "node generator/run.mjs"
+    "generate": "node generator/run.mjs",
+    "framehound": "node framehound.mjs"
   },
-  "description": "Finds rendering glitches in a single frame",
+  "description": "Learns what one WebGL app looks like broken, then finds rendering glitches in its screenshots",
   "dependencies": {
     "three": "^0.170.0"
   },
@@ -13,5 +14,8 @@
   },
   "type": "module",
   "private": true,
-  "license": "MIT"
+  "license": "MIT",
+  "bin": {
+    "framehound": "framehound.mjs"
+  }
 }

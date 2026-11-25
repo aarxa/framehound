@@ -16,6 +16,13 @@ from torch.utils.data import DataLoader
 from data import GlitchFrames, load_types
 
 
+def pick_device():
+    """An NVIDIA GPU, then Apple's GPU, then the CPU."""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+
+
 def build_model(n_types, encoder="resnet34", pretrained=True):
     return smp.Unet(
         encoder_name=encoder,
@@ -98,7 +105,7 @@ def main():
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    device = pick_device()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     types = load_types(args.data)
