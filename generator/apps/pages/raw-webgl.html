@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>raw WebGL 2 scene</title>
+<style>html, body { margin: 0; height: 100%; background: #000; overflow: hidden; } canvas { display: block; width: 100vw; height: 100vh; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// A WebGL 2 scene written by hand, with no engine, for testing framehound away from three.js: a sky, a ground and a
+// ring of turning, textured objects, each one draw call. It animates by time, like most apps.
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2', { antialias: true });
+
+const vs = `#version 300 es
+in vec3 a_position; in vec3 a_normal; in vec2 a_uv;
+uniform mat4 u_mvp; uniform mat4 u_model;
+out vec3 v_normal; out vec2 v_uv; out vec3 v_world;
+void main() { gl_Position = u_mvp * vec4(a_position, 1.0); v_normal = mat3(u_model) * a_normal; v_uv = a_uv; v_world = (u_model * vec4(a_position, 1.0)).xyz; }`;
+const fs = `#version 300 es
+precision highp float;
+in vec3 v_normal; in vec2 v_uv; in vec3 v_world;
+uniform sampler2D u_texture; uniform vec3 u_color; uniform float u_repeat;
+out vec4 o;
+void main() {
+  vec3 n = normalize(v_normal);
+  float light = 0.3 + 0.7 * max(dot(n, normalize(vec3(0.5, 0.8, 0.3))), 0.0);
+  vec3 c = u_color * texture(u_texture, v_uv * u_repeat).rgb * light;
+  float fog = clamp((length(v_world) - 12.0) / 16.0, 0.0, 1.0);
+  o = vec4(mix(c, vec3(0.55, 0.68, 0.82), fog), 1.0);
+}`;
+const skyVs = `#version 300 es
+in vec2 a_corner; out float v_y;
+void main() { gl_Position = vec4(a_corner, 0.999, 1.0); v_y = a_corner.y; }`;
+const skyFs = `#version 300 es
+precision highp float; in float v_y; out vec4 o;
+void main() { o = vec4(mix(vec3(0.75, 0.82, 0.9), vec3(0.3, 0.45, 0.75), v_y * 0.5 + 0.5), 1.0); }`;
+
+function program(vsrc, fsrc) {
+  const p = gl.createProgram();
+  for (const [type, src] of [[gl.VERTEX_SHADER, vsrc], [gl.FRAGMENT_SHADER, fsrc]]) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    gl.attachShader(p, s);
+  }
+  gl.linkProgram(p);
+  return p;
+}
+const lit = program(vs, fs);
+const sky = program(skyVs, skyFs);
+
+// meshes: positions, normals, uvs, indices
+function cube() {
+  const p = [], n = [], t = [], i = [];
+  const faces = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+  for (const f of faces) {
+    const u = [f[1], f[2], f[0]];
+    const w = [f[1] * u[2] - f[2] * u[1], f[2] * u[0] - f[0] * u[2], f[0] * u[1] - f[1] * u[0]];
+    const base = p.length / 3;
+    for (const [su, sw] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      for (let k = 0; k < 3; k++) p.push(0.5 * (f[k] + su * u[k] + sw * w[k]));
+      n.push(...f);
+      t.push(su * 0.5 + 0.5, sw * 0.5 + 0.5);
+    }
+    i.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  return { p, n, t, i };
+}
+function sphere(stacks = 20, slices = 28) {
+  const p = [], n = [], t = [], i = [];
+  for (let a = 0; a <= stacks; a++) for (let b = 0; b <= slices; b++) {
+    const th = Math.PI * a / stacks, ph = 2 * Math.PI * b / slices;
+    const v = [Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)];
+    p.push(...v.map((x) => x * 0.5)); n.push(...v); t.push(2 * b / slices, a / stacks);
+  }
+  for (let a = 0; a < stacks; a++) for (let b = 0; b < slices; b++) {
+    const k = a * (slices + 1) + b, m = k + slices + 1;
+    i.push(k, k + 1, m, k + 1, m + 1, m);
+  }
+  return { p, n, t, i };
+}
+function torus(R = 0.38, r = 0.14, seg = 36, sides = 14) {
+  const p = [], n = [], t = [], i = [];
+  for (let a = 0; a <= seg; a++) for (let b = 0; b <= sides; b++) {
+    const u = 2 * Math.PI * a / seg, v = 2 * Math.PI * b / sides;
+    const cx = Math.cos(u), cz = Math.sin(u);
+    n.push(Math.cos(v) * cx, Math.sin(v), Math.cos(v) * cz);
+    p.push((R + r * Math.cos(v)) * cx, r * Math.sin(v), (R + r * Math.cos(v)) * cz);
+    t.push(3 * a / seg, b / sides);
+  }
+  for (let a = 0; a < seg; a++) for (let b = 0; b < sides; b++) {
+    const k = a * (sides + 1) + b, m = k + sides + 1;
+    i.push(k, m, k + 1, k + 1, m, m + 1);
+  }
+  return { p, n, t, i };
+}
+function plane() {
+  return { p: [-1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1], n: [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], t: [0, 0, 1, 0, 1, 1, 0, 1], i: [0, 3, 2, 0, 2, 1] };
+}
+function upload(m) {
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  for (const [name, data, size] of [['a_position', m.p, 3], ['a_normal', m.n, 3], ['a_uv', m.t, 2]]) {
+    const loc = gl.getAttribLocation(lit, name);
+    const b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+  }
+  const ib = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(m.i), gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  return { vao, count: m.i.length };
+}
+const meshes = { cube: upload(cube()), sphere: upload(sphere()), torus: upload(torus()), plane: upload(plane()) };
+const skyVao = gl.createVertexArray();
+gl.bindVertexArray(skyVao);
+const skyBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, skyBuf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(gl.getAttribLocation(sky, 'a_corner'));
+gl.vertexAttribPointer(gl.getAttribLocation(sky, 'a_corner'), 2, gl.FLOAT, false, 0, 0);
+gl.bindVertexArray(null);
+
+// textures drawn on canvases: a checker, bricks and stripes
+function texture(draw) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  draw(c.getContext('2d'));
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  return t;
+}
+const textures = [
+  texture((g) => { for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) { g.fillStyle = (x + y) % 2 ? '#eee' : '#888'; g.fillRect(x * 32, y * 32, 32, 32); } }),
+  texture((g) => { g.fillStyle = '#ddd'; g.fillRect(0, 0, 256, 256); g.fillStyle = '#a55'; for (let y = 0; y < 8; y++) for (let x = -1; x < 5; x++) g.fillRect(x * 64 + (y % 2) * 32 + 2, y * 32 + 2, 60, 28); }),
+  texture((g) => { for (let y = 0; y < 16; y++) { g.fillStyle = y % 2 ? '#fff' : '#9ab'; g.fillRect(0, y * 16, 256, 16); } }),
+];
+
+// matrices (column-major)
+const mul = (a, b) => { const c = new Float32Array(16); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + j] * b[i * 4 + k]; c[i * 4 + j] = s; } return c; };
+const ident = () => new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+const translate = (x, y, z) => { const m = ident(); m[12] = x; m[13] = y; m[14] = z; return m; };
+const scale = (s) => { const m = ident(); m[0] = m[5] = m[10] = s; return m; };
+const rotY = (a) => { const m = ident(); m[0] = Math.cos(a); m[8] = Math.sin(a); m[2] = -Math.sin(a); m[10] = Math.cos(a); return m; };
+const rotX = (a) => { const m = ident(); m[5] = Math.cos(a); m[9] = -Math.sin(a); m[6] = Math.sin(a); m[10] = Math.cos(a); return m; };
+function perspective(fovy, aspect, near, far) {
+  const f = 1 / Math.tan(fovy / 2), m = new Float32Array(16);
+  m[0] = f / aspect; m[5] = f; m[10] = (far + near) / (near - far); m[11] = -1; m[14] = 2 * far * near / (near - far);
+  return m;
+}
+function lookAt(e, c) {
+  let f = [c[0] - e[0], c[1] - e[1], c[2] - e[2]]; const fl = Math.hypot(...f); f = f.map((x) => x / fl);
+  let s = [-f[2], 0, f[0]]; const sl = Math.hypot(...s); s = s.map((x) => x / sl);
+  const u = [s[1] * f[2] - s[2] * f[1], s[2] * f[0] - s[0] * f[2], s[0] * f[1] - s[1] * f[0]];
+  return new Float32Array([s[0], u[0], -f[0], 0, s[1], u[1], -f[1], 0, s[2], u[2], -f[2], 0,
+    -(s[0] * e[0] + s[1] * e[1] + s[2] * e[2]), -(u[0] * e[0] + u[1] * e[1] + u[2] * e[2]), f[0] * e[0] + f[1] * e[1] + f[2] * e[2], 1]);
+}
+
+const U = Object.fromEntries(['u_mvp', 'u_model', 'u_texture', 'u_color', 'u_repeat'].map((n) => [n, gl.getUniformLocation(lit, n)]));
+const palette = [[0.9, 0.35, 0.3], [0.95, 0.7, 0.25], [0.5, 0.8, 0.4], [0.3, 0.7, 0.8], [0.4, 0.5, 0.9], [0.7, 0.45, 0.85], [0.9, 0.5, 0.7], [0.85, 0.85, 0.8]];
+const kinds = ['cube', 'sphere', 'torus', 'cube', 'sphere', 'torus', 'cube', 'sphere', 'torus', 'cube'];
+
+function frame(now) {
+  const t = now / 1000;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  gl.viewport(0, 0, w, h);
+  gl.clearColor(0, 0, 0, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.disable(gl.DEPTH_TEST);
+  gl.useProgram(sky);
+  gl.bindVertexArray(skyVao);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.CULL_FACE);
+  gl.useProgram(lit);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.uniform1i(U.u_texture, 0);
+  const cam = 0.3 + t * 0.12;
+  const viewProj = mul(perspective(0.9, w / h, 0.1, 100), lookAt([10 * Math.cos(cam), 4.5 + Math.sin(t * 0.3), 10 * Math.sin(cam)], [0, 0.8, 0]));
+  const draw = (mesh, model, color, tex, repeat = 1) => {
+    gl.bindVertexArray(meshes[mesh].vao);
+    gl.bindTexture(gl.TEXTURE_2D, textures[tex]);
+    gl.uniformMatrix4fv(U.u_model, false, model);
+    gl.uniformMatrix4fv(U.u_mvp, false, mul(viewProj, model));
+    gl.uniform3fv(U.u_color, color);
+    gl.uniform1f(U.u_repeat, repeat);
+    gl.drawElements(gl.TRIANGLES, meshes[mesh].count, gl.UNSIGNED_SHORT, 0);
+  };
+  draw('plane', mul(translate(0, 0, 0), scale(14)), [0.8, 0.82, 0.75], 0, 8);
+  kinds.forEach((kind, i) => {
+    const a = i * 2 * Math.PI / kinds.length;
+    const model = mul(mul(translate(4.5 * Math.cos(a), 0.8 + 0.15 * Math.sin(t + i), 4.5 * Math.sin(a)), rotY(t * 0.6 + i)), mul(rotX(kind === 'torus' ? 1.1 : 0.2), scale(1.5)));
+    draw(kind, model, palette[i % palette.length], i % 3);
+  });
+  draw('sphere', mul(translate(0, 1.6, 0), mul(rotY(t * 0.2), scale(3))), [0.85, 0.8, 0.7], 1, 2);
+  gl.bindVertexArray(null);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

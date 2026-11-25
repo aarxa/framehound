@@ -70,6 +70,15 @@ It catches fewer than half of exploded vertices and inside-out meshes.
 **On three.js examples** the same holds: on five pages never trained on, a model trained on 145 other pages scores 0.67;
 models trained on each page's own earlier frames score 0.89–0.93.
 
+**Without an engine.** A small WebGL 2 page written by hand, with no engine
+(`generator/apps/pages/raw-webgl.html`, 13 draws), learned from ten minutes of play:
+- AUROC 0.98 (95% CI 0.96–0.99) on later views it never trained on.
+- In a 12-minute watch run with planted glitches, it flagged 115 of 121 broken frames and 2 of 111 clean ones.
+- It named the broken draw first every time it still drew (85 of 85).
+
+It's an easy scene: every draw goes straight to the frame, and objects rarely overlap. What it shows is that the
+injector doesn't depend on three.js.
+
 **On real bugs.** These are rendering bugs that three.js actually shipped, each learned on the example's last good release
 and tested on 30 frames from the broken release against 30 from the release that fixed it:
 
@@ -131,7 +140,8 @@ How often the broken draw came first, on the flagged frames of the last HexGL ru
   as if the draw wasn't there, such as a sky turned inside out. Neither leaves anything to find.
 - **The heatmap's cost.** On HexGL, where the model points loses 19 points against the truly broken pixels. A better
   heatmap means better naming. A plain box around the flagged area does worse still: on the same HexGL frames, 34%
-  first against 51% with the heatmap, counting all kinds.
+  first against 51% with the heatmap, counting all kinds. Reading the heatmap on a finer grid (4 px cells instead of
+  8) made no difference on another run's frames.
 
 **The Vulkan layer** (`native/`) breaks draw calls in native Vulkan apps the same way, in six of the eleven ways so
 far:
@@ -170,8 +180,8 @@ bugs into each game it tested.
 - **A draw that never happened can't be named.** Watch lists the draws that drew the flagged area. For a missing
   draw, those are whatever was behind it.
 - **Pages that draw only on input** can't be frozen yet. The three.js SVG example draws only when the mouse moves.
-- **Tested on three.js.** HexGL, Edelweiss and the examples are all three.js apps. The injector wraps WebGL itself,
-  but other engines haven't been tried.
+- **Mostly tested on three.js.** HexGL, Edelweiss and the examples are all three.js apps. The only other is the small
+  hand-written WebGL 2 page above. Babylon.js, PlayCanvas and Unity's WebGL builds haven't been tried.
 
 **Caveats.**
 - The test glitches are injected, not taken from the games' bug histories. They are real failure modes of real
@@ -295,7 +305,7 @@ broken and which pixels.
 | `generator/watch.mjs` | plays a build, checks each frame with the model, finds the draws behind flagged frames, writes the report |
 | `generator/serve.mjs` | the static server for pages on disk |
 | `native/` | the Vulkan layer (C++) and a test scene |
-| `generator/apps/` | page lists and game drivers |
+| `generator/apps/` | page lists, game drivers, and a hand-written WebGL 2 test page (`pages/raw-webgl.html`) |
 | `train/` | training (`train.py`), checking screenshots (`check.py`) and the evaluations |
 | `scripts/` | fetching test data, filtering and splitting captured data |
 | `generator/run.mjs`, `generator/scene.js` | the first approach: random three.js scenes built from Poly Haven models, broken in seven ways |
