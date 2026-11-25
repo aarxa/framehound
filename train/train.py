@@ -94,6 +94,7 @@ def main():
     ap.add_argument("--limit", type=int, default=None, help="use only the first N scenes per split (smoke tests)")
     ap.add_argument("--only", default=None, help="comma-separated glitch types; scenes with other glitches are left out (both frames)")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--init", default=None, help="start from this checkpoint's weights (same glitch types), e.g. to fine-tune on one app")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -110,7 +111,13 @@ def main():
     train_dl = DataLoader(train_ds, args.batch, shuffle=True, num_workers=args.workers, drop_last=True, persistent_workers=args.workers > 0)
     val_dl = DataLoader(val_ds, 8, shuffle=False, num_workers=args.workers, persistent_workers=args.workers > 0)
 
-    model = build_model(len(types), args.encoder).to(device)
+    model = build_model(len(types), args.encoder)
+    if args.init:
+        start = torch.load(args.init, map_location="cpu", weights_only=False)
+        if start["types"] != types or start["encoder"] != args.encoder:
+            raise SystemExit(f"{args.init} was trained with other glitch types or another encoder")
+        model.load_state_dict(start["model"])
+    model = model.to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     steps = args.epochs * len(train_dl)
     warmup = min(300, steps // 10)

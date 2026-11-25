@@ -6,7 +6,7 @@
 //
 //   node generator/capture.mjs --apps generator/apps/test.txt --out out/gl-check [--moments 3] [--per-moment 10]
 //        [--warmup 6] [--gap 3] [--workers 4] [--serve sources/threejs-r170] [--types missing_texture,inside_out]
-//        [--width 768 --height 432] [--min-strong 0.001]
+//        [--width 768 --height 432] [--min-strong 0.001] [--app-timeout 180]
 //
 // The apps file has one page per line: "<id> <url>" (lines starting with # are skipped). A url starting with "/" is
 // served from the --serve folder on a local server.
@@ -28,7 +28,7 @@ const workers = Number(args.workers ?? 1);
 const width = Number(args.width ?? 768);
 const height = Number(args.height ?? 432);
 const minStrong = Number(args['min-strong'] ?? 0.001); // share of the frame that must change plainly
-const APP_TIMEOUT = 180; // seconds; a page that hangs is given up on
+const APP_TIMEOUT = Number(args["app-timeout"] ?? 180); // seconds; a page that hangs is given up on
 const VAL_EVERY = 5; // apps whose id hashes to 0 mod 5 go to validation, so validation pages are never trained on
 const injector = join(root, 'generator/inject/glitch-gl.js');
 

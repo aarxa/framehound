@@ -1,0 +1,7 @@
+# Five three.js r170 examples for the per-app test: varied, animated, and never trained on by runs/gl1-resnet34
+# (all five are in data/gl-v1's validation split). Served from sources/threejs-r170.
+webgl_animation_skinning_morph /examples/webgl_animation_skinning_morph.html
+webgl_animation_skinning_blending /examples/webgl_animation_skinning_blending.html
+webgl_postprocessing_sao /examples/webgl_postprocessing_sao.html
+webgl_loader_collada_kinematics /examples/webgl_loader_collada_kinematics.html
+webgl_morphtargets_face /examples/webgl_morphtargets_face.html

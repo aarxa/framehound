@@ -28,6 +28,7 @@ def main():
     ap.add_argument("--pages-from", default=None, help="a manifest.jsonl whose pages (of --pages-split) to keep")
     ap.add_argument("--pages-split", default="val")
     ap.add_argument("--changed", type=float, default=0.2, help="view change above which a page counts as a new view")
+    ap.add_argument("--per-page", action="store_true", help="also report each page on its own")
     args = ap.parse_args()
 
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -74,6 +75,9 @@ def main():
     report("all", items)
     report(f"view changed > {args.changed}", [it for it in items if view_change.get(it["app"], 1) > args.changed])
     report(f"view changed <= {args.changed}", [it for it in items if view_change.get(it["app"], 1) <= args.changed])
+    if args.per_page:
+        for app in sorted({it["app"] for it in items}):
+            report(f"{app} (view change {view_change.get(app)})", [it for it in items if it["app"] == app])
 
 
 if __name__ == "__main__":
