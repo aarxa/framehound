@@ -246,6 +246,56 @@ Vulkan watch on 14 frames from that last stretch:
 The barrel is missed: it's a few hundred pixels, and a green checker on a barrel looks like a texture, not like a
 missing one.
 
+### A real Godot game: the third-person shooter demo
+
+[Godot's third-person shooter demo](https://github.com/godotengine/tps-demo) is a small but complete game: a player
+robot, enemy robots that shoot, a large industrial level, global illumination, glow, particles and decals. Its code is
+MIT and its art CC-BY 3.0 (Juan Linietsky, Fernando Miguel Calabró; music by Christian Fernando Perucchi). Tested at
+commit `a82f154`, with the Godot built above. It draws about 3,800 draws a frame, in two submits.
+
+`drivers/tps-demo/` plays it the same way every run. `framehound_driver.gd` is an autoload that `override.cfg` adds;
+both go in the demo's folder, and none of the demo's own files change. The driver:
+- skips the menu and loads the level on the main thread, so the level always starts on the same frame (the menu loads
+  it on a thread, then waits on a timer);
+- undoes the level's random choices: the player's spawn point, the flying forklifts' models, the camera shake's noise;
+- turns off what carries history from frame to frame (FSR2 upscaling, TAA, volumetric fog) and hides the debug
+  overlay, which shows the frame rate;
+- walks the player forward, turning the camera and jumping now and then, and ignores the real mouse and keyboard;
+- ships a bug in the player robot for testing watch: `--bug inside` or `--bug wrongtex` (a cargo container's texture).
+
+```bash
+cp native/drivers/tps-demo/framehound_driver.gd native/drivers/tps-demo/override.cfg path/to/tps-demo/
+$GODOT --headless --import --path path/to/tps-demo
+node framehound.mjs learn-native --id tps-demo --start 120 --every 6 --captures 450 --variants 32 -- \
+  $GODOT --path path/to/tps-demo --rendering-driver vulkan --fixed-fps 60 --disable-vsync -- --frames 2900
+node framehound.mjs watch-native models/tps-demo --start 2900 --every 25 --count 14 -- \
+  $GODOT --path path/to/tps-demo --rendering-driver vulkan --fixed-fps 60 --disable-vsync -- --frames 3300 --bug inside
+```
+
+![The Vulkan watch report for the TPS demo with the player robot shipped inside out](../docs/tps-watch.jpg)
+
+Results (768×432, through MoltenVK on an Apple M4 Pro):
+- **The same frames on every run.** Two runs that read frames back on different schedules matched pixel for pixel
+  on 30 of 32 frames compared, up to frame 3,200; the other two differed by 14 and 69 pixels. One early watch run did
+  go elsewhere. The likeliest cause is the real mouse, since the camera turns when it moves over the window; the
+  driver now ignores it, and the same watch run again matched.
+- **Fewer visible glitches.** Most of the 3,800 draws are small or hidden, so 1,122 of 14,400 broken copies (8%) were
+  visible and kept, from 450 frames over 45 seconds of play.
+- **Learnable, but harder.** On the last fifth of the walk, AUROC 0.75 (95% CI 0.69–0.80), catching 41% when 5% of
+  clean frames are flagged. From a third of the play (150 frames), it was 0.66.
+
+Vulkan watch on 14 frames from further along the walk than the model learned from:
+
+| Build | Frames flagged | Named first |
+|---|---|---|
+| no bug | 1 of 14 | (a striped barrier tape) |
+| the player robot inside out (`--bug inside`) | **13 of 14** | the robot, 13 of 13 |
+| the player robot with a cargo container's texture (`--bug wrongtex`) | 7 of 14 | the barrier tape or other props, not the robot |
+
+The inside-out robot is caught and named on almost every frame. The wrong texture raises the flags from 1 to 7, but
+the heatmap lands on the orange-and-black barrier tape nearby, which the model also flags once in the build with no
+bug; the robot comes third once. So watch notices something is off but points at the wrong thing.
+
 ## Results so far
 
 **On the test scene** (`fh_scene` at 768×432, through MoltenVK on an Apple M4 Pro):
@@ -276,7 +326,8 @@ can't show the other glitches. Without it the frame is blank, and there is nothi
 
 ## Not done yet
 
-- **A real game.** The Godot scene is small and made for the test. A game made with Godot, or another engine, is next.
+- **Bigger games and other engines.** The TPS demo is a small game. A full game, and Unreal or Unity games (which go
+  through the loader on Linux and Windows), haven't been tried.
 - **Godot's names.** This Godot build doesn't name its Vulkan objects, so the report describes textures by size.
 - **Things passed through unbroken:** draws in secondary command buffers, with `FRAMEHOUND_SHADOW_ALL` (on capture
   frames they are broken like any other). Indirect draws can be broken in every way except `dropped_faces`, since the

@@ -165,6 +165,10 @@ far:
   whole meshes in every pass Godot draws them in: the shadow map, the depth pre-pass and the colour pass. A model
   learned from 585 broken frames scores AUROC 0.79 on later views. Watching a build that ships the tower inside out,
   it flags all 14 frames checked and names the tower first in each. A barrel shipped with the wrong texture is missed.
+- **On a real Godot game.** On Godot's third-person shooter demo (about 3,800 draws a frame), a model learned from 45
+  seconds of play scores AUROC 0.75 on later views. Watching a build with the player robot shipped inside out, it
+  flags 13 of 14 frames and names the robot first in each. A wrong texture on the robot raises the flags from 1 to 7
+  of 14, but watch points at a nearby barrier instead of the robot.
 
 See [native/README.md](native/README.md).
 
