@@ -25,8 +25,8 @@ What it does so far:
   file.
 - **Names the right draw.** When the broken draw draws to the frame itself, watch names it first 67% of the time on
   HexGL and 71% on Edelweiss, and puts it in the top three 80% and 100% of the time.
-- **Works natively too.** The C++ Vulkan layer breaks draws in native Vulkan apps the same way, and works on replays
-  of recorded sessions. It's built and checked on macOS, and on Linux in CI.
+- **Works natively too.** The C++ Vulkan layer breaks draws in native Vulkan apps the same way, including Godot, and
+  works on replays of recorded sessions. It's built and checked on macOS, and on Linux in CI.
 
 ![Test frames from later in the play sessions, never trained on: frame, the truly broken pixels (red), what the model flagged (cyan)](docs/games-predictions.jpg)
 
@@ -161,6 +161,10 @@ far:
   pixel, so a session recorded once can be broken again and again without the app.
 - **Watch for Vulkan** (`native/locate.py`). With a bug shipped in one draw of the test scene, the broken draw was
   named first on every flagged frame for three of four bugs. The fourth, a small inside-out cube, was missed.
+- **On Godot.** On a small 3D scene in Godot 4.7, built from source so that it loads Vulkan layers, the layer breaks
+  whole meshes in every pass Godot draws them in: the shadow map, the depth pre-pass and the colour pass. A model
+  learned from 585 broken frames scores AUROC 0.79 on later views. Watching a build that ships the tower inside out,
+  it flags all 14 frames checked and names the tower first in each. A barrel shipped with the wrong texture is missed.
 
 See [native/README.md](native/README.md).
 
@@ -312,7 +316,7 @@ broken and which pixels.
 | `generator/capture.mjs` | drives pages with the injector and saves clean frames, broken frames and masks |
 | `generator/watch.mjs` | plays a build, checks each frame with the model, finds the draws behind flagged frames, writes the report |
 | `generator/serve.mjs` | the static server for pages on disk |
-| `native/` | the Vulkan layer (C++) and a test scene |
+| `native/` | the Vulkan layer (C++), a test scene, and a Godot test project (`native/godot-scene`) |
 | `generator/apps/` | page lists, game drivers, and a hand-written WebGL 2 test page (`pages/raw-webgl.html`) |
 | `train/` | training (`train.py`), checking screenshots (`check.py`) and the evaluations |
 | `scripts/` | fetching test data, filtering and splitting captured data |

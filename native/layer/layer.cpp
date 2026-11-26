@@ -3,9 +3,10 @@
 // Loaded into any Vulkan app by the Vulkan loader, it lets framehound learn from the app's own frames. On a capture
 // frame, every command buffer the app records is also recorded into a few shadow copies, identical except that in each
 // one, one draw call is broken: left out, drawn with a texture swapped for a fallback, missing some of its triangles,
-// drawn inside out, drawn with no depth test or drawn with additive blending. At submit, the layer runs each shadow copy, reads the finished frame back, then runs the
-// app's own commands and reads the clean frame. All of them draw from the same data the app uploaded for that frame,
-// so the clean and broken frames differ only by the broken draw, and the difference is the glitch's exact mask.
+// drawn inside out, drawn with no depth test or drawn with additive blending. Before the frame is presented, the layer
+// reads it back, runs the frame's command buffers again with each shadow copy swapped in and reads each result, then
+// runs a clean copy so the frame is the app's own again. All of them draw from the same data the app uploaded for that
+// frame, so the clean and broken frames differ only by the broken draw, and the difference is the glitch's exact mask.
 //
 // The output is the same as framehound's WebGL capture (clean/, glitched/, masks/, manifest.jsonl), so the trainer and
 // `framehound learn` read it unchanged.
@@ -23,6 +24,8 @@
 //   FRAMEHOUND_SEED      random seed (default 1)
 //   FRAMEHOUND_SHADOW_ALL=1  shadow every command buffer the app records, not just those of capture frames, for apps
 //                        that record their command buffers once and submit them every frame (vkcube does)
+//   FRAMEHOUND_TRACE=1   log command buffers, submits, acquires and presents around the first capture frame, and how
+//                        much each broken copy changed, for seeing how an app lays out its frame
 //
 // Limits for now: frames are read from the swapchain image being presented, and draws in secondary command buffers are
 // passed through unbroken with FRAMEHOUND_SHADOW_ALL.
@@ -62,6 +65,7 @@ struct Config {
   long start = 30, every = 30, captures = -1, variants = 8;
   unsigned seed = 1;
   bool shadowAll = false;  // shadow every command buffer, for apps that record once and submit every frame
+  bool trace = false;      // log how the frames around the first capture are laid out
   std::vector<long> locate;  // frames to draw again once per draw with that draw left out, in place of the schedule
   std::vector<std::string> types = {"missing_draw", "missing_texture", "dropped_faces", "inside_out", "depth_test_off", "additive_blend"};
   bool active() const { return !out.empty(); }
@@ -86,6 +90,7 @@ Config LoadConfig() {
   }
   if (const char* v = get("FRAMEHOUND_SEED")) c.seed = unsigned(std::atol(v));
   if (const char* v = get("FRAMEHOUND_SHADOW_ALL")) c.shadowAll = std::atoi(v) != 0;
+  if (const char* v = get("FRAMEHOUND_TRACE")) c.trace = std::atoi(v) != 0;
   if (const char* v = get("FRAMEHOUND_TYPES")) {
     c.types.clear();
     std::string s = v;
@@ -127,12 +132,17 @@ struct Variant {
   std::string pipelineName;
   std::string sets;   // JSON list of the names of its bound descriptor sets, when the app named them
   std::string textures;  // JSON list of the images its bound descriptor sets hold: name, or size when unnamed
+  VkPipeline pipelineHandle = VK_NULL_HANDLE;  // the pipeline the broken draw was drawn with
+  uint64_t mesh = 0;    // break every draw of this mesh (see MeshKey), not just draw number `draw`
+  std::string preset;   // the glitch, picked before recording from what the mesh's draws allow
+  uint64_t drewMesh = 0;  // locate: the mesh of the draw left out
 };
 
 struct BoundSet {
   VkDescriptorSet set = VK_NULL_HANDLE;
   VkPipelineLayout layout = VK_NULL_HANDLE;
   std::vector<uint32_t> offsets;  // its dynamic offsets
+  bool images = false;            // it holds images the fragment shader reads
 };
 
 struct Device;
@@ -145,7 +155,10 @@ struct Recording {
   uint64_t shadowFrame = ~0ull;
   bool local = false;  // shadows made outside a capture frame (FRAMEHOUND_SHADOW_ALL), counted by draws in this buffer
   long draws = 0, lastDraws = 0;
+  bool oneTime = false;  // recorded with ONE_TIME_SUBMIT, so it can't be submitted again
   VkPipeline bound = VK_NULL_HANDLE;  // the graphics pipeline bound at this point of the recording
+  VkBuffer indexBuffer = VK_NULL_HANDLE, vertexBuffer = VK_NULL_HANDLE;  // and the buffers bound, to tell meshes apart
+  VkDeviceSize indexOffset = 0;
   std::vector<BoundSet> sets;         // and the graphics descriptor sets, while shadowing
   std::vector<VkDescriptorSet> temps;  // copies of sets made for broken draws
   std::vector<Recording*> executed;     // secondary command buffers with shadows that this one executes
@@ -168,6 +181,7 @@ struct PipelineInfo {
   int id = 0;
   VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
   VkPipeline insideOut = VK_NULL_HANDLE, depthOff = VK_NULL_HANDLE, additive = VK_NULL_HANDLE;
+  bool color = false;  // writes colour (not a depth-only pass such as a shadow map or a depth pre-pass)
 };
 
 struct Swapchain {
@@ -208,6 +222,20 @@ struct Device {
   long drawsLastFrame = 0;
   bool capturing = false;
   bool locating = false;  // this frame is a locate frame
+  std::mutex frameLock;
+  std::vector<std::pair<VkQueue, std::vector<VkCommandBuffer>>> frameSubmits;  // a capture frame's submits, in order
+  struct FrameDraw {
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    uint64_t mesh = 0;
+    uint32_t count = 0;
+    bool indirect = false, textured = false;  // textured: a bound set holds images the fragment shader reads
+  };
+  std::vector<std::pair<long, FrameDraw>> frameDraws;  // each draw of the frame, by index
+  std::vector<FrameDraw> lastFrameDraws;               // the same for the last frame, by draw index
+  struct Shows {
+    int tries = 0, shown = 0;  // draws broken with this pipeline, and how many of them changed the frame
+  };
+  std::unordered_map<VkPipeline, Shows> shows;
   long captured = 0;
   int nextPipelineId = 0;
   std::unordered_map<uint64_t, std::string> names;  // debug names the app gave its objects (VK_EXT_debug_utils)
@@ -216,6 +244,7 @@ struct Device {
   std::unordered_map<VkDescriptorSet, std::unordered_map<uint32_t, std::vector<VkImageView>>> setImages;
   std::unordered_map<VkImageView, VkImage> viewImage;
   std::unordered_map<VkImage, VkExtent3D> imageSize;
+  std::unordered_map<VkImage, VkImageUsageFlags> imageUsage;
   std::vector<Variant> variants;
   std::mt19937 rng{1};
   unsigned nextSeed = 1;
@@ -253,6 +282,11 @@ std::unordered_map<Key, Instance*> instances;
 std::unordered_map<Key, Device*> devices;
 std::unordered_map<VkCommandBuffer, Recording*> recordings;
 
+bool Tracing(const Device* d) {
+  const Config& c = config();
+  return c.trace && d && long(d->frame) + 2 >= c.start && long(d->frame) <= c.start;
+}
+
 Instance* InstanceOf(Key k) {
   auto it = instances.find(k);
   return it == instances.end() ? nullptr : it->second;
@@ -285,9 +319,44 @@ void Log(const char* fmt, ...) {
   va_end(a);
 }
 
+// The index and vertex buffers bound for drawing, which the generated wrappers report, to tell which mesh a draw draws
+void NoteIndex(Recording* r, VkBuffer b, VkDeviceSize offset) {
+  r->indexBuffer = b;
+  r->indexOffset = offset;
+}
+void NoteVertex(Recording* r, uint32_t first, uint32_t n, const VkBuffer* b) {
+  if (first == 0 && n && b) r->vertexBuffer = b[0];
+}
+[[maybe_unused]] void NoteCmdBindIndexBuffer(Recording* r, VkBuffer b, VkDeviceSize o, VkIndexType) { NoteIndex(r, b, o); }
+[[maybe_unused]] void NoteCmdBindIndexBuffer2(Recording* r, VkBuffer b, VkDeviceSize o, VkDeviceSize, VkIndexType) { NoteIndex(r, b, o); }
+[[maybe_unused]] void NoteCmdBindIndexBuffer2KHR(Recording* r, VkBuffer b, VkDeviceSize o, VkDeviceSize, VkIndexType) { NoteIndex(r, b, o); }
+[[maybe_unused]] void NoteCmdBindVertexBuffers(Recording* r, uint32_t f, uint32_t n, const VkBuffer* b, const VkDeviceSize*) { NoteVertex(r, f, n, b); }
+[[maybe_unused]] void NoteCmdBindVertexBuffers2(Recording* r, uint32_t f, uint32_t n, const VkBuffer* b, const VkDeviceSize*, const VkDeviceSize*,
+                                                const VkDeviceSize*) {
+  NoteVertex(r, f, n, b);
+}
+[[maybe_unused]] void NoteCmdBindVertexBuffers2EXT(Recording* r, uint32_t f, uint32_t n, const VkBuffer* b, const VkDeviceSize*, const VkDeviceSize*,
+                                                   const VkDeviceSize*) {
+  NoteVertex(r, f, n, b);
+}
+
+// Which mesh a draw draws, from the buffers and ranges it reads. Engines draw a mesh several times a frame (into a
+// shadow map, a depth pre-pass, then in colour), and a real bug, such as a broken asset, shows in all of them: a mesh
+// missing from the colour pass but not the depth pre-pass draws as a black hole, not as a missing object. So a glitch
+// breaks every draw of the mesh. A mesh the app draws many times, at different places, is broken everywhere, as a
+// broken asset would be.
+uint64_t MeshKey(std::initializer_list<uint64_t> parts) {
+  uint64_t h = 1469598103934665603ull;
+  for (uint64_t v : parts) h = (h ^ v) * 1099511628211ull, h ^= h >> 31;
+  return h ? h : 1;
+}
+
 #define FH_COMMAND_WRAPPERS
 #include "commands.inc"
 #undef FH_COMMAND_WRAPPERS
+
+// FRAMEHOUND_TRACE: the frames just before the first capture, and the first capture frame itself
+bool Tracing(const Device* d);
 
 // ---- files --------------------------------------------------------------------------------------------------------------
 void MakeDirs(const std::string& path) {
@@ -527,6 +596,7 @@ struct DrawCall {
   uint32_t first;
   bool indirect = false;
   std::function<void(VkCommandBuffer, uint32_t, uint32_t)> draw;
+  uint64_t mesh = 0;  // MeshKey of what it draws
 };
 
 // ---- fallback textures and descriptor set copies, for missing_texture ------------------------------------------------
@@ -690,24 +760,35 @@ VkDescriptorSet SwappedSet(Device* d, VkDescriptorSet src, const VkDescriptorSet
   return dst;
 }
 
+// Whether a draw is part of the scene (not a full-screen pass, a sprite or lines), with its pipeline's info.
+bool SceneDraw(Device* d, VkPipeline pipeline, uint32_t count, bool indirect, PipelineInfo& p) {
+  {
+    std::lock_guard<std::mutex> g(lock);
+    auto pi = d->pipelines.find(pipeline);
+    if (pi == d->pipelines.end()) return false;
+    p = pi->second;
+  }
+  return IsTriangles(p.topology) && (indirect || count > 6);
+}
+
+// The glitches a scene draw allows, besides missing_texture (which needs a texture to swap).
+std::vector<const char*> Glitches(const PipelineInfo& p, uint32_t count, bool indirect) {
+  std::vector<const char*> ok;
+  if (Wanted("missing_draw")) ok.push_back("missing_draw");
+  if (Wanted("dropped_faces") && !indirect && p.topology == VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST && count >= 12) ok.push_back("dropped_faces");
+  if (Wanted("inside_out") && p.insideOut) ok.push_back("inside_out");
+  if (Wanted("depth_test_off") && p.depthOff) ok.push_back("depth_test_off");
+  if (Wanted("additive_blend") && p.additive) ok.push_back("additive_blend");
+  return ok;
+}
+
 // Break one draw in shadow `s`, the way variant v asks; records the draw normally if nothing applies.
 void BreakDraw(Device* d, Recording* r, VkCommandBuffer s, Variant& v, const DrawCall& dc) {
   PipelineInfo found;
-  const PipelineInfo* p = nullptr;
-  {
-    std::lock_guard<std::mutex> g(lock);
-    auto pi = d->pipelines.find(r->bound);
-    if (pi != d->pipelines.end()) found = pi->second, p = &found;
-  }
+  bool scene = SceneDraw(d, r->bound, dc.count, dc.indirect, found);
+  const PipelineInfo* p = scene ? &found : nullptr;
   std::vector<const char*> ok;
-  bool scene = p && IsTriangles(p->topology) && (dc.indirect || dc.count > 6);  // leaves out full-screen passes, sprites, lines
-  if (scene) {
-    if (Wanted("missing_draw")) ok.push_back("missing_draw");
-    if (Wanted("dropped_faces") && !dc.indirect && p->topology == VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST && dc.count >= 12) ok.push_back("dropped_faces");
-    if (Wanted("inside_out") && p->insideOut) ok.push_back("inside_out");
-    if (Wanted("depth_test_off") && p->depthOff) ok.push_back("depth_test_off");
-    if (Wanted("additive_blend") && p->additive) ok.push_back("additive_blend");
-  }
+  if (scene) ok = Glitches(found, dc.count, dc.indirect);
   // sampled images the fragment shader reads, in the bound descriptor sets
   struct Slot {
     uint32_t set;
@@ -723,6 +804,29 @@ void BreakDraw(Device* d, Recording* r, VkCommandBuffer s, Variant& v, const Dra
             (b.stageFlags & VK_SHADER_STAGE_FRAGMENT_BIT) && b.descriptorCount)
           slots.push_back({si, b});
     }
+    // Engines bind many images a draw never shows (shadow maps, render targets, small default textures), so swap a
+    // texture that holds an asset: not drawn into, and bigger than 8x8. Slots whose images the layer couldn't follow
+    // (sets written with update templates) are used only when no slot is known to hold one.
+    std::vector<Slot> assets, unknown;
+    for (const Slot& s : slots) {
+      std::lock_guard<std::mutex> g(lock);
+      auto si = d->setImages.find(r->sets[s.set].set);
+      auto bi = si == d->setImages.end() ? decltype(si->second.end()){} : si->second.find(s.binding.binding);
+      if (si == d->setImages.end() || bi == si->second.end() || bi->second.empty()) {
+        unknown.push_back(s);
+        continue;
+      }
+      auto vi = d->viewImage.find(bi->second[0]);
+      if (vi == d->viewImage.end()) {
+        unknown.push_back(s);
+        continue;
+      }
+      VkImageUsageFlags usage = d->imageUsage[vi->second];
+      VkExtent3D e = d->imageSize[vi->second];
+      bool drawnInto = usage & (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT);
+      if (!drawnInto && e.width * e.height > 64) assets.push_back(s);
+    }
+    slots = assets.empty() ? unknown : assets;
     if (!slots.empty()) ok.push_back("missing_texture");
   }
   if (ok.empty()) {
@@ -731,8 +835,18 @@ void BreakDraw(Device* d, Recording* r, VkCommandBuffer s, Variant& v, const Dra
   }
   std::mt19937 rnd(v.seed * 9973u + 1);
   std::uniform_real_distribution<double> u(0, 1);
-  v.type = ok[rnd() % ok.size()];
+  if (!v.preset.empty()) {
+    // the glitch picked for the mesh, on each of its draws that allows it (a shadow-map draw has no texture to swap)
+    if (std::find_if(ok.begin(), ok.end(), [&](const char* g) { return v.preset == g; }) == ok.end()) {
+      dc.draw(s, dc.count, dc.first);
+      return;
+    }
+    v.type = v.preset;
+  } else {
+    v.type = ok[rnd() % ok.size()];
+  }
   v.applied = true;
+  if (!v.pipelineHandle) v.pipelineHandle = r->bound;
   v.count = dc.count;
   v.call = dc.call;
   if (v.type == "missing_draw") {
@@ -840,6 +954,7 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_AcquireNextImageKHR(VkDevice device, VkSwapcha
     if (it != d->swapchains.end()) it->second.acquired = *index;
     d->lastAcquired = sc;
   }
+  if (Tracing(d)) Log("trace frame %llu: acquire image %u", (unsigned long long)d->frame, *index);
   return r;
 }
 
@@ -853,6 +968,9 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_CreateGraphicsPipelines(VkDevice device, VkPip
     PipelineInfo p;
     p.id = ++d->nextPipelineId;
     if (ci.pInputAssemblyState) p.topology = ci.pInputAssemblyState->topology;
+    if (ci.pColorBlendState)
+      for (uint32_t k = 0; k < ci.pColorBlendState->attachmentCount; k++)
+        if (ci.pColorBlendState->pAttachments[k].colorWriteMask) p.color = true;
     if (config().active()) {
       auto dynamic = [&](VkDynamicState s) {
         if (!ci.pDynamicState) return false;
@@ -935,6 +1053,7 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_CreateImage(VkDevice device, const VkImageCrea
   if (r == VK_SUCCESS) {
     std::lock_guard<std::mutex> g(lock);
     d->imageSize[*image] = info->extent;
+    d->imageUsage[*image] = info->usage;
   }
   return r;
 }
@@ -1003,14 +1122,18 @@ VKAPI_ATTR void VKAPI_CALL fh_CmdBindDescriptorSets(VkCommandBuffer cb, VkPipeli
   Device* d = r->device;
   d->cmd.CmdBindDescriptorSets(cb, point, layout, first, count, sets, dynamicCount, dynamic);
   for (VkCommandBuffer s : r->shadows) d->cmd.CmdBindDescriptorSets(s, point, layout, first, count, sets, dynamicCount, dynamic);
-  if (point != VK_PIPELINE_BIND_POINT_GRAPHICS || r->shadows.empty()) return;
+  if (point != VK_PIPELINE_BIND_POINT_GRAPHICS || !config().active()) return;
   uint32_t at = 0;
   for (uint32_t i = 0; i < count; i++) {
     BoundSet b{sets[i], layout, {}};
     if (const Device::SetLayout* l = LayoutOfSet(d, sets[i]))
-      for (const auto& bd : l->bindings)
+      for (const auto& bd : l->bindings) {
         if (bd.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC || bd.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)
           for (uint32_t k = 0; k < bd.descriptorCount && at < dynamicCount; k++) b.offsets.push_back(dynamic[at++]);
+        if ((bd.descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER || bd.descriptorType == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) &&
+            (bd.stageFlags & VK_SHADER_STAGE_FRAGMENT_BIT) && bd.descriptorCount)
+          b.images = true;
+      }
     if (r->sets.size() <= first + i) r->sets.resize(first + i + 1);
     r->sets[first + i] = b;
   }
@@ -1089,9 +1212,13 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_BeginCommandBuffer(VkCommandBuffer cb, const V
   Device* d = r->device;
   FreeShadows(r);  // shadows of an earlier recording
   r->bound = VK_NULL_HANDLE;
+  r->indexBuffer = r->vertexBuffer = VK_NULL_HANDLE;
+  r->indexOffset = 0;
+  r->sets.clear();
   if (r->draws) r->lastDraws = r->draws;
   r->draws = 0;
   VkResult res = d->BeginCommandBuffer(cb, info);
+  r->oneTime = info && (info->flags & VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
   const Config& c = config();
   bool all = c.active() && c.shadowAll;
   // secondaries get shadows on capture frames; with shadow-all, only primaries do (one broken draw per copy)
@@ -1111,6 +1238,8 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_BeginCommandBuffer(VkCommandBuffer cb, const V
   } else {
     r->variants = d->variants;
   }
+  if (r->variants.empty()) return res;  // clean frames only
+  r->variants.push_back(Variant{});  // and a clean copy, run last to put the frame back (it breaks no draw)
   for (size_t v = 0; v < r->variants.size(); v++) {
     VkCommandBuffer s = NewCommandBuffer(d, r->pool, r->level);
     if (!s) break;
@@ -1121,12 +1250,14 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_BeginCommandBuffer(VkCommandBuffer cb, const V
   }
   if (r->shadows.size() != r->variants.size()) FreeShadows(r);
   else r->shadowFrame = d->frame;
+  if (Tracing(d)) Log("trace frame %llu: begin %p (%s), %zu shadows", (unsigned long long)d->frame, (void*)cb, secondary ? "secondary" : "primary", r->shadows.size());
   return res;
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL fh_EndCommandBuffer(VkCommandBuffer cb) {
   Recording* r = RecordingOf(cb);
   for (VkCommandBuffer s : r->shadows) r->device->EndCommandBuffer(s);
+  if (Tracing(r->device)) Log("trace frame %llu: end %p, %ld draws", (unsigned long long)r->device->frame, (void*)cb, r->draws);
   return r->device->EndCommandBuffer(cb);
 }
 
@@ -1142,13 +1273,21 @@ void Draw(Recording* r, VkCommandBuffer cb, const DrawCall& dc) {
   dc.draw(cb, dc.count, dc.first);
   long index = d->drawsThisFrame++;
   long local = r->draws++;
+  if (config().active()) {
+    Device::FrameDraw fd;
+    fd.pipeline = r->bound, fd.mesh = dc.mesh, fd.count = dc.count, fd.indirect = dc.indirect;
+    for (const BoundSet& b : r->sets) fd.textured = fd.textured || (b.set && b.images);
+    std::lock_guard<std::mutex> g(d->frameLock);
+    d->frameDraws.emplace_back(index, fd);
+  }
   for (size_t v = 0; v < r->shadows.size(); v++) {
     Variant& var = r->variants[v];
-    if (var.draw != (r->local ? local : index)) {
+    bool hit = var.mesh ? dc.mesh == var.mesh : var.draw == (r->local ? local : index);
+    if (!hit) {
       dc.draw(r->shadows[v], dc.count, dc.first);
     } else if (var.skip) {
       // locate: this copy leaves the draw out; note what it drew with
-      var.applied = true, var.type = "missing_draw", var.call = dc.call, var.count = dc.count;
+      var.applied = true, var.type = "missing_draw", var.call = dc.call, var.count = dc.count, var.drewMesh = dc.mesh;
       {
         std::lock_guard<std::mutex> g(lock);
         auto pi = d->pipelines.find(r->bound);
@@ -1199,7 +1338,7 @@ VKAPI_ATTR void VKAPI_CALL fh_CmdDraw(VkCommandBuffer cb, uint32_t vertexCount, 
   Device* d = r->device;
   Draw(r, cb, {"vkCmdDraw", vertexCount, firstVertex, false, [=](VkCommandBuffer c, uint32_t count, uint32_t first) {
     d->cmd.CmdDraw(c, count, instances, first, firstInstance);
-  }});
+  }, MeshKey({1, uint64_t(r->vertexBuffer), firstVertex, vertexCount})});
 }
 
 VKAPI_ATTR void VKAPI_CALL fh_CmdDrawIndexed(VkCommandBuffer cb, uint32_t indexCount, uint32_t instances, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) {
@@ -1207,14 +1346,15 @@ VKAPI_ATTR void VKAPI_CALL fh_CmdDrawIndexed(VkCommandBuffer cb, uint32_t indexC
   Device* d = r->device;
   Draw(r, cb, {"vkCmdDrawIndexed", indexCount, firstIndex, false, [=](VkCommandBuffer c, uint32_t count, uint32_t first) {
     d->cmd.CmdDrawIndexed(c, count, instances, first, vertexOffset, firstInstance);
-  }});
+  }, MeshKey({2, uint64_t(r->indexBuffer), r->indexOffset, firstIndex, indexCount, uint64_t(uint32_t(vertexOffset))})});
 }
 
 // Indirect draws: the GPU reads the counts, so they can be left out or drawn with other state, but not split.
 VKAPI_ATTR void VKAPI_CALL fh_CmdDrawIndirect(VkCommandBuffer cb, VkBuffer buffer, VkDeviceSize offset, uint32_t drawCount, uint32_t stride) {
   Recording* r = RecordingOf(cb);
   Device* d = r->device;
-  Draw(r, cb, {"vkCmdDrawIndirect", 0, 0, true, [=](VkCommandBuffer c, uint32_t, uint32_t) { d->cmd.CmdDrawIndirect(c, buffer, offset, drawCount, stride); }});
+  Draw(r, cb, {"vkCmdDrawIndirect", 0, 0, true, [=](VkCommandBuffer c, uint32_t, uint32_t) { d->cmd.CmdDrawIndirect(c, buffer, offset, drawCount, stride); },
+               MeshKey({3, uint64_t(buffer), offset, drawCount})});
 }
 
 VKAPI_ATTR void VKAPI_CALL fh_CmdDrawIndexedIndirect(VkCommandBuffer cb, VkBuffer buffer, VkDeviceSize offset, uint32_t drawCount, uint32_t stride) {
@@ -1222,7 +1362,7 @@ VKAPI_ATTR void VKAPI_CALL fh_CmdDrawIndexedIndirect(VkCommandBuffer cb, VkBuffe
   Device* d = r->device;
   Draw(r, cb, {"vkCmdDrawIndexedIndirect", 0, 0, true, [=](VkCommandBuffer c, uint32_t, uint32_t) {
     d->cmd.CmdDrawIndexedIndirect(c, buffer, offset, drawCount, stride);
-  }});
+  }, MeshKey({4, uint64_t(buffer), offset, drawCount})});
 }
 
 // Indirect draws whose number of draws the GPU also reads, from a count buffer (core 1.2, and KHR and AMD names)
@@ -1236,7 +1376,8 @@ PFN_CountDraw FirstOf(std::initializer_list<PFN_CountDraw> fns) {
 void CountDraw(VkCommandBuffer cb, const char* call, PFN_CountDraw fn, VkBuffer buffer, VkDeviceSize offset, VkBuffer countBuffer,
                VkDeviceSize countOffset, uint32_t maxDraws, uint32_t stride) {
   Recording* r = RecordingOf(cb);
-  Draw(r, cb, {call, 0, 0, true, [=](VkCommandBuffer c, uint32_t, uint32_t) { fn(c, buffer, offset, countBuffer, countOffset, maxDraws, stride); }});
+  Draw(r, cb, {call, 0, 0, true, [=](VkCommandBuffer c, uint32_t, uint32_t) { fn(c, buffer, offset, countBuffer, countOffset, maxDraws, stride); },
+               MeshKey({5, uint64_t(buffer), offset, uint64_t(countBuffer), countOffset})});
 }
 
 VKAPI_ATTR void VKAPI_CALL fh_CmdDrawIndirectCount(VkCommandBuffer cb, VkBuffer buffer, VkDeviceSize offset, VkBuffer countBuffer,
@@ -1274,10 +1415,20 @@ VKAPI_ATTR void VKAPI_CALL fh_CmdExecuteCommands(VkCommandBuffer cb, uint32_t n,
 }
 
 // A frame ends at present: pick the draws to break in the next frame if it is captured.
+void CaptureFrame(Device* d, VkQueue presentQueue, const VkPresentInfoKHR* info);
+
 VKAPI_ATTR VkResult VKAPI_CALL fh_QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* info) {
   Device* d = DeviceOf(queue);
-  VkResult r = d->QueuePresentKHR(queue, info);
   const Config& c = config();
+  if (Tracing(d)) Log("trace frame %llu: present, %ld draws this frame", (unsigned long long)d->frame, long(d->drawsThisFrame));
+  if (d->capturing) CaptureFrame(d, queue, info);
+  {
+    std::lock_guard<std::mutex> g(d->frameLock);
+    d->frameSubmits.clear();
+  }
+  d->capturing = false;
+  d->locating = false;
+  VkResult r = d->QueuePresentKHR(queue, info);
   if (c.active() && !d->placeholdersTried && Wanted("missing_texture")) MakePlaceholders(d, queue);
   d->drawsLastFrame = d->drawsThisFrame.exchange(0);
   d->frame++;
@@ -1297,10 +1448,60 @@ VKAPI_ATTR VkResult VKAPI_CALL fh_QueuePresentKHR(VkQueue queue, const VkPresent
   }
   d->capturing = c.active() && f >= c.start && (f - c.start) % c.every == 0 && (c.captures < 0 || d->captured < c.captures) &&
                  (c.shadowAll || d->drawsLastFrame > 0);
+  {
+    std::lock_guard<std::mutex> g(d->frameLock);
+    d->lastFrameDraws.assign(size_t(std::max(0L, d->drawsLastFrame)), Device::FrameDraw{});
+    for (const auto& [k, fd] : d->frameDraws)
+      if (k < long(d->lastFrameDraws.size())) d->lastFrameDraws[k] = fd;
+    d->frameDraws.clear();
+  }
   if (d->capturing && !c.shadowAll) {
+    // Which draws to break. Breaking a draw in a pass the frame never shows (a depth pre-pass, a buffer no effect
+    // reads) changes nothing, and engines have many. So each draw is weighed by how often breaking draws made with
+    // its pipeline has changed the frame so far, starting from a guess: draws that write colour more than depth-only
+    // ones (a missing shadow does show). Every draw keeps some chance, so pipelines not tried yet get tried.
+    std::vector<double> cumulative;
+    double sum = 0;
+    for (const Device::FrameDraw& fd : d->lastFrameDraws) {
+      VkPipeline pl = fd.pipeline;
+      double prior = 0.4;
+      int tries = 0, shown = 0;
+      {
+        std::lock_guard<std::mutex> g(lock);
+        auto pi = d->pipelines.find(pl);
+        if (pi != d->pipelines.end() && pi->second.color) prior = 1.0;
+      }
+      {
+        std::lock_guard<std::mutex> g(d->frameLock);
+        auto s = d->shows.find(pl);
+        if (s != d->shows.end()) tries = s->second.tries, shown = s->second.shown;
+      }
+      sum += std::max(0.02, (shown + prior) / (tries + 1.0));
+      cumulative.push_back(sum);
+    }
+    std::uniform_real_distribution<double> pick(0, sum);
     for (long v = 0; v < c.variants; v++) {
       Variant var;
-      var.draw = long(d->rng() % uint32_t(d->drawsLastFrame));
+      double x = pick(d->rng);
+      var.draw = long(std::lower_bound(cumulative.begin(), cumulative.end(), x) - cumulative.begin());
+      if (var.draw >= d->drawsLastFrame) var.draw = d->drawsLastFrame - 1;
+      // break every draw of that draw's mesh, with one glitch that at least one of them allows
+      const Device::FrameDraw& chosen = d->lastFrameDraws[size_t(var.draw)];
+      var.pipelineHandle = chosen.pipeline;
+      if (chosen.mesh) {
+        var.mesh = chosen.mesh;
+        std::vector<const char*> can;
+        auto add = [&](const char* g) {
+          if (std::find_if(can.begin(), can.end(), [&](const char* h) { return !std::strcmp(g, h); }) == can.end()) can.push_back(g);
+        };
+        for (const Device::FrameDraw& x : d->lastFrameDraws) {
+          PipelineInfo p;
+          if (x.mesh != chosen.mesh || !SceneDraw(d, x.pipeline, x.count, x.indirect, p)) continue;
+          for (const char* g : Glitches(p, x.count, x.indirect)) add(g);
+          if (x.textured && Wanted("missing_texture")) add("missing_texture");
+        }
+        if (!can.empty()) var.preset = can[d->rng() % can.size()];
+      }
       var.seed = d->nextSeed++;
       d->variants.push_back(var);
     }
@@ -1326,6 +1527,13 @@ void SaveCapture(Device* d, const Swapchain& sc, const std::vector<uint8_t>& cle
     const Variant& var = used[v];
     if (!var.applied || broken[v].empty()) continue;
     Change ch = Compare(clean, broken[v], w, h);
+    {
+      std::lock_guard<std::mutex> g(d->frameLock);
+      auto& s = d->shows[var.pipelineHandle];
+      s.tries++;
+      s.shown += ch.fraction >= 0.0005;
+    }
+    if (c.trace) Log("trace: copy %zu, %s on draw %ld: %.4f of the frame changed, %.4f plainly", v, var.type.c_str(), var.draw, ch.fraction, ch.strong);
     // visible glitches only: enough of the frame changes, plainly, in one patch, and the frame doesn't go blank
     long minPatch = std::lround(150.0 * (double(w) * h) / (768.0 * 432.0));
     if (ch.fraction < 0.002 || ch.fraction > 0.6 || ch.strong < 0.001 || ch.patch < minPatch || ch.spread < 6) continue;
@@ -1390,6 +1598,7 @@ void SaveLocate(Device* d, const Swapchain& sc, const std::vector<uint8_t>& clea
   WritePng(dir + "/frame.png", w, h, 3, clean.data());
   std::string list;
   int changedDraws = 0;
+  std::unordered_map<uint64_t, int> meshIds;  // meshes numbered by first draw
   for (size_t k = 0; k < without.size(); k++) {
     const Variant& v = used[k];
     if (!v.applied || without[k].empty()) continue;
@@ -1403,9 +1612,10 @@ void SaveLocate(Device* d, const Swapchain& sc, const std::vector<uint8_t>& clea
       WritePng(dir + "/without-" + std::to_string(k) + ".png", w, h, 3, without[k].data());
       changedDraws++;
     }
+    int mesh = v.drewMesh ? meshIds.emplace(v.drewMesh, int(meshIds.size())).first->second : -1;
     char buf[2048];
-    std::snprintf(buf, sizeof buf, "%s{\"index\": %zu, \"call\": %s, \"count\": %u, \"pipeline\": %d, \"pipeline_name\": %s, \"sets\": %s, \"textures\": %s, \"changed\": %ld}",
-                  list.empty() ? "" : ",\n  ", k, Json(v.call).c_str(), v.count, v.pipeline, v.pipelineName.empty() ? "null" : Json(v.pipelineName).c_str(),
+    std::snprintf(buf, sizeof buf, "%s{\"index\": %zu, \"call\": %s, \"count\": %u, \"mesh\": %d, \"pipeline\": %d, \"pipeline_name\": %s, \"sets\": %s, \"textures\": %s, \"changed\": %ld}",
+                  list.empty() ? "" : ",\n  ", k, Json(v.call).c_str(), v.count, mesh, v.pipeline, v.pipelineName.empty() ? "null" : Json(v.pipelineName).c_str(),
                   v.sets.empty() ? "[]" : v.sets.c_str(), v.textures.empty() ? "[]" : v.textures.c_str(), changed);
     list += buf;
   }
@@ -1416,58 +1626,113 @@ void SaveLocate(Device* d, const Swapchain& sc, const std::vector<uint8_t>& clea
   Log("frame %llu: drawn again without each of its %zu draws; %d of them change it", (unsigned long long)d->frame, without.size(), changedDraws);
 }
 
-// A submit in a form both vkQueueSubmit and vkQueueSubmit2 fit: the command buffers of each batch, and ways to submit
-// only the app's waits, other command buffers with no waits or signals, and the app's own work without its waits.
-struct SubmitOps {
-  std::vector<std::vector<VkCommandBuffer>> batches;
-  bool plain = true;  // nothing in it the layer doesn't know how to split
-  std::function<VkResult()> waitsOnly;
-  std::function<VkResult(const std::vector<std::vector<VkCommandBuffer>>&)> run;
-  std::function<VkResult()> ownWithoutWaits;
-  std::function<VkResult()> passThrough;
-};
+// ---- running the copies ------------------------------------------------------------------------------------------------
+// On a capture frame the app's submits go through untouched, and the command buffers they carry are noted. Just before
+// the frame is presented, the layer waits for them and reads the clean frame back. Then it submits the frame's command
+// buffers again once per broken copy, each recording swapped for its shadow, and reads each result. Last, the clean
+// shadow runs them once more, so the frame presented, and what the GPU keeps for the next frame, is the app's own.
+// Engines often draw a frame in several submits (Godot draws the scene into its own images, then copies it to the
+// window in another), so nothing can be read back before the whole frame is in.
 
-VkResult CaptureSubmit(Device* d, VkQueue queue, const SubmitOps& ops) {
-  // which command buffers to swap for their shadows: those recorded this capture frame, or with shadow-all, the first
-  // one that has shadows (so each copy has one broken draw)
-  std::vector<Recording*> swap;
-  bool local = false;
-  for (const auto& batch : ops.batches) {
-    for (VkCommandBuffer cb : batch) {
-      Recording* r = RecordingOf(cb);
-      if (r->shadows.empty() || !d->capturing) continue;
-      if (r->local && !local && swap.empty()) swap.push_back(r), local = true;
-      else if (!r->local && r->shadowFrame == d->frame && !local) swap.push_back(r);
+void NoteSubmit(Device* d, VkQueue queue, std::vector<VkCommandBuffer> cbs) {
+  bool shadowed = false;
+  std::string trace;
+  for (VkCommandBuffer cb : cbs) {
+    Recording* r = RecordingOf(cb);
+    shadowed = shadowed || !r->shadows.empty();
+    if (Tracing(d)) {
+      char buf[96];
+      std::snprintf(buf, sizeof buf, " %p: %ld draws, %zu shadows", (void*)cb, r->draws, r->shadows.size());
+      trace += buf;
     }
+  }
+  if (Tracing(d)) Log("trace frame %llu: submit [%s ]%s", (unsigned long long)d->frame, trace.c_str(), d->capturing ? " (capturing)" : "");
+  if (!d->capturing || cbs.empty()) return;
+  std::lock_guard<std::mutex> g(d->frameLock);
+  // from the first submit with shadows on: what came before (uploads, say) has already done its work
+  if (shadowed || !d->frameSubmits.empty()) d->frameSubmits.emplace_back(queue, std::move(cbs));
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL fh_QueueSubmit(VkQueue queue, uint32_t n, const VkSubmitInfo* submits, VkFence fence) {
+  Device* d = DeviceOf(queue);
+  VkResult r = d->QueueSubmit(queue, n, submits, fence);
+  if (r == VK_SUCCESS && (d->capturing || config().trace)) {
+    std::vector<VkCommandBuffer> cbs;
+    for (uint32_t i = 0; i < n; i++) cbs.insert(cbs.end(), submits[i].pCommandBuffers, submits[i].pCommandBuffers + submits[i].commandBufferCount);
+    NoteSubmit(d, queue, std::move(cbs));
+  }
+  return r;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL fh_QueueSubmit2(VkQueue queue, uint32_t n, const VkSubmitInfo2* submits, VkFence fence) {
+  Device* d = DeviceOf(queue);
+  VkResult r = d->QueueSubmit2(queue, n, submits, fence);
+  if (r == VK_SUCCESS && (d->capturing || config().trace)) {
+    std::vector<VkCommandBuffer> cbs;
+    for (uint32_t i = 0; i < n; i++)
+      for (uint32_t k = 0; k < submits[i].commandBufferInfoCount; k++) cbs.push_back(submits[i].pCommandBufferInfos[k].commandBuffer);
+    NoteSubmit(d, queue, std::move(cbs));
+  }
+  return r;
+}
+
+// Before a capture frame is presented: read it back, run each broken copy of it and read that back, then run the clean
+// copy so the frame is the app's own again.
+void CaptureFrame(Device* d, VkQueue presentQueue, const VkPresentInfoKHR* info) {
+  std::vector<std::pair<VkQueue, std::vector<VkCommandBuffer>>> submits;
+  {
+    std::lock_guard<std::mutex> g(d->frameLock);
+    submits.swap(d->frameSubmits);
   }
   Swapchain swc;  // a copy, taken under the lock
   {
     std::lock_guard<std::mutex> g(lock);
-    auto it = d->swapchains.find(d->lastAcquired);
-    if (it != d->swapchains.end()) swc = it->second;
+    auto it = info->swapchainCount ? d->swapchains.find(info->pSwapchains[0]) : d->swapchains.end();
+    if (it != d->swapchains.end()) swc = it->second, swc.acquired = info->pImageIndices[0];
   }
-  bool readable = !swc.images.empty();
-  if (swap.empty() && d->capturing && d->variants.empty() && !config().shadowAll && readable) {
-    // clean frames only (FRAMEHOUND_VARIANTS=0): the app's own submit, then read the frame back
-    VkResult r = ops.passThrough();
-    std::vector<uint8_t> clean;
-    if (r == VK_SUCCESS && d->QueueWaitIdle(queue) == VK_SUCCESS && ReadImage(d, queue, swc, clean)) {
-      SaveClean(d, swc, clean);
-      d->captured++;
-    }
-    d->capturing = false;
-    return r;
-  }
-  if (swap.empty() || !ops.plain || !readable) return ops.passThrough();
-
+  if (swc.images.empty()) return;
   if (!d->fence) {
     VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    d->CreateFence(d->handle, &fi, nullptr, &d->fence);
+    if (d->CreateFence(d->handle, &fi, nullptr, &d->fence) != VK_SUCCESS) return;
   }
-  // 1. wait for what the app's submit waits on (the acquired image), once
-  if (ops.waitsOnly() == VK_SUCCESS) Wait(d);
-  // 2. each broken copy, read back
-  size_t copies = swap.front()->shadows.size();
+  // the frame as the app drew it
+  std::vector<VkQueue> queues{presentQueue};
+  for (const auto& s : submits)
+    if (std::find(queues.begin(), queues.end(), s.first) == queues.end()) queues.push_back(s.first);
+  for (VkQueue q : queues) d->QueueWaitIdle(q);
+  std::vector<uint8_t> clean;
+  if (!ReadImage(d, presentQueue, swc, clean)) return;
+  if (d->variants.empty() && !config().shadowAll) {  // clean frames only (FRAMEHOUND_VARIANTS=0)
+    SaveClean(d, swc, clean);
+    d->captured++;
+    return;
+  }
+
+  // which command buffers to swap for their shadows: those recorded this capture frame, or with shadow-all, the first
+  // one that has shadows (so each copy has one broken draw)
+  std::vector<Recording*> swap;
+  bool local = false;
+  for (const auto& s : submits)
+    for (VkCommandBuffer cb : s.second) {
+      Recording* r = RecordingOf(cb);
+      if (r->shadows.empty()) continue;
+      if (r->local && !local && swap.empty()) swap.push_back(r), local = true;
+      else if (!r->local && r->shadowFrame == d->frame && !local) swap.push_back(r);
+    }
+  if (swap.empty()) {
+    Log("frame %llu: not captured, no command buffer of it was recorded with shadows", (unsigned long long)d->frame);
+    return;
+  }
+  // the rest run again as they are, which a command buffer recorded for one submit only can't
+  for (const auto& s : submits)
+    for (VkCommandBuffer cb : s.second) {
+      Recording* r = RecordingOf(cb);
+      if (r->oneTime && std::find(swap.begin(), swap.end(), r) == swap.end()) {
+        Log("frame %llu: not captured, a command buffer recorded for one submit only would have to run again", (unsigned long long)d->frame);
+        return;
+      }
+    }
+  size_t copies = swap.front()->shadows.size() - 1;  // the last shadow is the clean one
   std::vector<Variant> used(copies);
   for (Recording* r : swap) {
     std::vector<Recording*> all = r->executed;
@@ -1476,110 +1741,29 @@ VkResult CaptureSubmit(Device* d, VkQueue queue, const SubmitOps& ops) {
       for (size_t v = 0; v < copies && v < x->variants.size(); v++)
         if (x->variants[v].applied) used[v] = x->variants[v];
   }
-  std::vector<std::vector<uint8_t>> broken(copies);
-  for (size_t v = 0; v < copies; v++) {
-    if (!used[v].applied) continue;
-    std::vector<std::vector<VkCommandBuffer>> lists;
-    for (const auto& batch : ops.batches) {
-      lists.emplace_back();
-      for (VkCommandBuffer cb : batch) {
+  // the frame's command buffers again, in order, with copy v of each swapped one
+  auto run = [&](size_t v) {
+    for (const auto& s : submits) {
+      std::vector<VkCommandBuffer> list;
+      for (VkCommandBuffer cb : s.second) {
         Recording* r = RecordingOf(cb);
         bool swapped = std::find(swap.begin(), swap.end(), r) != swap.end();
-        lists.back().push_back(swapped && v < r->shadows.size() ? r->shadows[v] : cb);
+        list.push_back(swapped && v < r->shadows.size() ? r->shadows[v] : cb);
       }
+      VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+      si.commandBufferCount = uint32_t(list.size());
+      si.pCommandBuffers = list.data();
+      if (d->QueueSubmit(s.first, 1, &si, d->fence) != VK_SUCCESS || !Wait(d)) return false;
     }
-    if (ops.run(lists) == VK_SUCCESS && Wait(d)) ReadImage(d, queue, swc, broken[v]);
-  }
-  // 3. the app's own commands, without the waits already done, then the clean frame
-  VkResult r = ops.ownWithoutWaits();
-  std::vector<uint8_t> clean;
-  if (r == VK_SUCCESS && d->QueueWaitIdle(queue) == VK_SUCCESS && ReadImage(d, queue, swc, clean)) {
-    if (d->locating) SaveLocate(d, swc, clean, broken, used);
-    else SaveCapture(d, swc, clean, broken, used);
-    d->captured++;
-  }
-  d->capturing = false;
-  d->locating = false;
-  return r;
-}
-
-VKAPI_ATTR VkResult VKAPI_CALL fh_QueueSubmit(VkQueue queue, uint32_t n, const VkSubmitInfo* submits, VkFence fence) {
-  Device* d = DeviceOf(queue);
-  SubmitOps ops;
-  // timeline semaphore values are split along with the waits and signals; anything else in pNext isn't handled yet
-  std::vector<const VkTimelineSemaphoreSubmitInfo*> timeline(n, nullptr);
-  for (uint32_t i = 0; i < n; i++) {
-    ops.batches.emplace_back(submits[i].pCommandBuffers, submits[i].pCommandBuffers + submits[i].commandBufferCount);
-    for (auto* p = static_cast<const VkBaseInStructure*>(submits[i].pNext); p; p = p->pNext) {
-      if (p->sType == VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO) timeline[i] = reinterpret_cast<const VkTimelineSemaphoreSubmitInfo*>(p);
-      else ops.plain = false;
-    }
-    if (timeline[i] && timeline[i]->pNext) ops.plain = false;
-  }
-  ops.passThrough = [&] { return d->QueueSubmit(queue, n, submits, fence); };
-  ops.waitsOnly = [&] {
-    std::vector<VkSubmitInfo> s(submits, submits + n);
-    std::vector<VkTimelineSemaphoreSubmitInfo> tl(n);
-    for (uint32_t i = 0; i < n; i++) {
-      s[i].commandBufferCount = 0, s[i].signalSemaphoreCount = 0, s[i].pSignalSemaphores = nullptr;
-      if (timeline[i]) {
-        tl[i] = *timeline[i];
-        tl[i].signalSemaphoreValueCount = 0, tl[i].pSignalSemaphoreValues = nullptr;
-        s[i].pNext = &tl[i];
-      }
-    }
-    return d->QueueSubmit(queue, n, s.data(), d->fence);
+    return true;
   };
-  ops.run = [&](const std::vector<std::vector<VkCommandBuffer>>& lists) {
-    std::vector<VkSubmitInfo> s(lists.size(), VkSubmitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO});
-    for (size_t i = 0; i < lists.size(); i++) s[i].commandBufferCount = uint32_t(lists[i].size()), s[i].pCommandBuffers = lists[i].data();
-    return d->QueueSubmit(queue, uint32_t(s.size()), s.data(), d->fence);
-  };
-  ops.ownWithoutWaits = [&] {
-    std::vector<VkSubmitInfo> s(submits, submits + n);
-    std::vector<VkTimelineSemaphoreSubmitInfo> tl(n);
-    for (uint32_t i = 0; i < n; i++) {
-      s[i].waitSemaphoreCount = 0, s[i].pWaitSemaphores = nullptr, s[i].pWaitDstStageMask = nullptr;
-      if (timeline[i]) {
-        tl[i] = *timeline[i];
-        tl[i].waitSemaphoreValueCount = 0, tl[i].pWaitSemaphoreValues = nullptr;
-        s[i].pNext = &tl[i];
-      }
-    }
-    return d->QueueSubmit(queue, n, s.data(), fence);
-  };
-  return CaptureSubmit(d, queue, ops);
-}
-
-VKAPI_ATTR VkResult VKAPI_CALL fh_QueueSubmit2(VkQueue queue, uint32_t n, const VkSubmitInfo2* submits, VkFence fence) {
-  Device* d = DeviceOf(queue);
-  SubmitOps ops;
-  for (uint32_t i = 0; i < n; i++) {
-    ops.batches.emplace_back();
-    for (uint32_t k = 0; k < submits[i].commandBufferInfoCount; k++) ops.batches.back().push_back(submits[i].pCommandBufferInfos[k].commandBuffer);
-    if (submits[i].pNext || submits[i].flags) ops.plain = false;
-  }
-  ops.passThrough = [&] { return d->QueueSubmit2(queue, n, submits, fence); };
-  ops.waitsOnly = [&] {
-    std::vector<VkSubmitInfo2> s(submits, submits + n);
-    for (auto& x : s) x.commandBufferInfoCount = 0, x.signalSemaphoreInfoCount = 0;
-    return d->QueueSubmit2(queue, n, s.data(), d->fence);
-  };
-  ops.run = [&](const std::vector<std::vector<VkCommandBuffer>>& lists) {
-    std::vector<std::vector<VkCommandBufferSubmitInfo>> infos(lists.size());
-    std::vector<VkSubmitInfo2> s(lists.size(), VkSubmitInfo2{VK_STRUCTURE_TYPE_SUBMIT_INFO_2});
-    for (size_t i = 0; i < lists.size(); i++) {
-      for (VkCommandBuffer cb : lists[i]) infos[i].push_back(VkCommandBufferSubmitInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, nullptr, cb, 0});
-      s[i].commandBufferInfoCount = uint32_t(infos[i].size()), s[i].pCommandBufferInfos = infos[i].data();
-    }
-    return d->QueueSubmit2(queue, uint32_t(s.size()), s.data(), d->fence);
-  };
-  ops.ownWithoutWaits = [&] {
-    std::vector<VkSubmitInfo2> s(submits, submits + n);
-    for (auto& x : s) x.waitSemaphoreInfoCount = 0, x.pWaitSemaphoreInfos = nullptr;
-    return d->QueueSubmit2(queue, n, s.data(), fence);
-  };
-  return CaptureSubmit(d, queue, ops);
+  std::vector<std::vector<uint8_t>> broken(copies);
+  for (size_t v = 0; v < copies; v++)
+    if (used[v].applied && run(v)) ReadImage(d, presentQueue, swc, broken[v]);
+  run(copies);
+  if (d->locating) SaveLocate(d, swc, clean, broken, used);
+  else SaveCapture(d, swc, clean, broken, used);
+  d->captured++;
 }
 
 VKAPI_ATTR void VKAPI_CALL fh_DestroyDevice(VkDevice device, const VkAllocationCallbacks* a) {

@@ -114,7 +114,15 @@ def main():
         hot = np.maximum(heat_full - floor, 0)
         total_hot = float(hot.sum())
         found = []
-        for dr in json.load(open(d / "draws.json")):
+        listed = json.load(open(d / "draws.json"))
+        # draws of the same mesh: its other passes (a shadow map, a depth pre-pass), or other copies of it
+        by_mesh = defaultdict(list)
+        for dr in listed:
+            if dr.get("mesh", -1) >= 0:
+                by_mesh[dr["mesh"]].append(dr["index"])
+        for dr in listed:
+            dr["same_mesh"] = [i for i in by_mesh.get(dr.get("mesh", -1), []) if i != dr["index"]]
+        for dr in listed:
             path = d / f"without-{dr['index']}.png"
             if not path.exists():
                 continue
@@ -169,6 +177,8 @@ def write_html(out, s, frames):
         v, loc = f["verdict"], f.get("located") or {}
         draws = "".join(
             f'<div class="draw"><img src="{e(x["picture"])}" alt=""><div><p><b>Draw #{x["index"]}</b></p><p>{e(describe_html(x))}</p>'
+            + (f'<p class="dim">The same mesh is also drawn by {", ".join("#" + str(i) for i in x["same_mesh"])}: '
+               'its other passes, such as a shadow map, or other copies of it.</p>' if x.get("same_mesh") else "") +
             f'<p class="dim">Explains {x["explains"]:.0%} of the flagged area; {x["flagged_share"]:.0%} of what it draws is flagged.</p></div></div>'
             for x in loc.get("draws", []))
         heat = Path(v["heatmap"]).relative_to(out) if v.get("heatmap") else ""

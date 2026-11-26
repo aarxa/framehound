@@ -12,3 +12,4 @@ models/
 watch/
 native/build/
 native/layer/commands.inc
+native/godot-scene/.godot/

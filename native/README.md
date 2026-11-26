@@ -17,15 +17,26 @@ can't freeze a native app's clock, so this one draws the frame twice another way
 - **Shadow recording.** On a capture frame, every command the app records goes into its own command buffer and also
   into a few shadow copies. Each copy breaks one draw call. The layer has wrappers for all 307 recording commands,
   generated from the Vulkan registry (`layer/gen_commands.py`), so no command goes missing from a copy.
-- **Each copy submitted in turn.** When the app submits, the layer runs each shadow copy and reads the finished
-  swapchain image back. Then it runs the app's own command buffers and reads the clean frame. The app has already
-  written that frame's data (matrices, animation, uniforms), so the clean and broken frames differ only by the broken
-  draw.
+- **The whole frame again, once per copy.** The app's submits go through untouched. Just before the frame is
+  presented, the layer reads it back, then submits the frame's command buffers again with each shadow copy swapped in,
+  and reads each result. A clean copy runs last, so the frame presented is the app's own. Engines often draw one frame
+  in several submits: Godot draws the scene into its own images, then copies the result to the window in a second
+  submit. So nothing is read back until the whole frame is in. The app has already written that frame's data
+  (matrices, animation, uniforms), so the clean and broken frames differ only by what was broken.
+- **Whole meshes.** Engines draw each mesh several times a frame: into a shadow map, into a depth pre-pass, then in
+  colour. A real bug, such as a broken asset, shows in all of those, so a glitch breaks every draw of the same mesh,
+  told apart by the index or vertex data it reads. Breaking only one of them looks like no real bug: on Godot, a mesh
+  left out of its colour pass but not its depth pre-pass draws as a black hole, not a missing object. A mesh drawn in
+  many places is broken in all of them, as a broken asset would be.
+- **Draws that show.** Breaking a draw that writes into a buffer nothing displays changes nothing, and engines have
+  many such draws. The layer counts, per pipeline, how often breaking a draw changed the frame, and picks draws from
+  pipelines that show more often, while still trying the others.
 - **Pipeline variants.** Glitches that change render state (culling, depth test, blending) need different pipelines.
   The layer creates those variants inside `vkCreateGraphicsPipelines`, while the app's create info is still at hand,
   and binds them for the broken draw only.
 - **Copied descriptor sets.** For a missing texture, the broken draw gets a copy of one of its descriptor sets, with
-  one sampled image swapped for a fallback texture.
+  one sampled image swapped for a fallback texture. The image swapped holds an asset: the app never draws into it (so
+  it isn't a shadow map or a render target), and it's bigger than 8×8 (so it isn't a default texture).
 - **Same rules as the WebGL side.** A broken frame is kept only if the glitch is visible:
   - 0.2–60% of the frame changes;
   - at least 0.1% of the frame changes plainly, in a patch of at least 150 px (at 768×432);
@@ -93,6 +104,7 @@ node framehound.mjs watch-native models/scene --start 580 --every 10 --count 14 
 | `FRAMEHOUND_SHADOW_ALL=1` | shadow every command buffer, for apps that record theirs once and submit them every frame |
 | `FRAMEHOUND_SEED` | random seed |
 | `FRAMEHOUND_LOCATE` | frames to draw again once per draw, each without one draw (see below); replaces the schedule |
+| `FRAMEHOUND_TRACE=1` | log how the frames around the first capture are laid out (command buffers, submits, presents) and how much each broken copy changed |
 
 `fh_scene` (`testapp/`) is a small Vulkan scene for trying the layer without a game. It draws a textured ground, a ring
 of turning cubes and spheres, and two glass boxes, to a headless swapchain (no window). Like a game engine, it
@@ -116,7 +128,8 @@ It names its pipelines and textures with `VK_EXT_debug_utils`, as engines do.
 The report describes each draw by its call, size, pipeline and the textures it samples. The layer follows the draw's
 descriptor sets to their image views and images. It names things by what the app called them with `VK_EXT_debug_utils`,
 as engines do in their development builds, or by size when they're unnamed. Descriptor sets written with update
-templates aren't followed yet.
+templates aren't followed yet. Each draw lists the other draws of the same mesh, so a draw into a shadow map can be
+tied to the object it belongs to.
 
 ```bash
 .venv/bin/python native/locate.py --model models/native-scene --out watch/native-bug --start 580 --every 10 --count 14 \
@@ -175,6 +188,64 @@ node framehound.mjs watch-native models/scene --start 580 --every 10 --count 14 
 From a 4.7 MB recording of 720 frames of the scene with `--bug texture:5`, it flagged all 14 frames and named draw 5
 first on each. Both replays drew the same frames.
 
+## On a real engine: Godot
+
+Official Godot builds for macOS link MoltenVK into the engine, so the Vulkan loader, and with it every layer, is
+skipped. Godot built from source with `use_volk=yes` loads Vulkan through the loader, and the layer loads like in any
+other app (on Linux and Windows, engines go through the loader anyway):
+
+```bash
+# Godot 4.7.2 from source (about 4 minutes on an M4 Pro); needs SCons
+scons platform=macos arch=arm64 target=editor use_volk=yes accesskit=no
+```
+
+`godot-scene/` is a small Godot project for testing it: a courtyard with a brick tower, a wall, crates, barrels,
+turning statues, a figure and a glass case, lit by the sun with shadows. It builds everything in code, with textures
+drawn in code, and animates by frame count, so two runs draw the same frames. `--bug wrongtex` ships a barrel with
+the ground's texture, and `--bug inside` the tower inside out.
+
+```bash
+GODOT=path/to/godot.macos.editor.arm64
+node framehound.mjs learn-native --id godot-scene --every 5 --captures 140 --variants 16 -- \
+  $GODOT --path native/godot-scene --rendering-driver vulkan --fixed-fps 60 --disable-vsync -- --frames 720
+node framehound.mjs watch-native models/godot-scene --start 580 --every 10 --count 14 -- \
+  $GODOT --path native/godot-scene --rendering-driver vulkan --fixed-fps 60 --disable-vsync -- --frames 720 --bug inside
+```
+
+![The Vulkan watch report for the Godot scene with the tower shipped inside out](../docs/godot-watch.jpg)
+
+Getting there took three changes to the layer, each found on Godot:
+- **Read the frame at present.** Godot draws the scene in one submit and copies it to the window in another. The
+  layer used to read the frame back after the first submit, so it read an image from three frames earlier, the same
+  for every copy.
+- **Break meshes, not draws.** Godot draws a mesh up to three times a frame. Broken in one pass only, a glitch looked
+  like no real bug, and the model learned on those glitches missed the real inside-out tower.
+- **Pick draws that show.** Most of Godot's draws go into its shadow map or its depth pre-pass, which also
+  writes a normal buffer this scene never displays.
+
+Results (768×432, through MoltenVK on an Apple M4 Pro):
+- **Clean.** Under the Khronos validation layer, Godot reports the same two errors with and without the layer
+  (both its own: a portability extension and a descriptor limit).
+- **Glitches that look like Godot's own.** 140 captured frames with 16 broken copies each gave 585 visible broken
+  frames: missing objects (gone with their shadows), inside-out meshes that look hollow, holes, objects drawn through
+  walls, and magenta checker textures. About a quarter of the copies change the frame visibly; additive blending never
+  does, because Godot draws opaque objects onto a black buffer before the sky.
+- **Learnable.** On the last fifth of the camera's path, AUROC 0.79 (95% CI 0.72–0.87), catching 63% when 5% of clean
+  frames are flagged; inside-out meshes 82%, missing textures 8 of 8.
+- **The same frames on every run.** Each watch ran Godot twice; both runs drew the same frames every time.
+
+Vulkan watch on 14 frames from that last stretch:
+
+| Build | Frames flagged | Named first |
+|---|---|---|
+| no bug | 1 of 14 | |
+| the tower inside out (`--bug inside`) | **14 of 14** | the tower, 14 of 14 |
+| the same, with the model learned when glitches broke one draw only | 2 of 14 | |
+| a barrel with the ground's texture (`--bug wrongtex`) | 1 of 14 | |
+
+The barrel is missed: it's a few hundred pixels, and a green checker on a barrel looks like a texture, not like a
+missing one.
+
 ## Results so far
 
 **On the test scene** (`fh_scene` at 768×432, through MoltenVK on an Apple M4 Pro):
@@ -205,15 +276,13 @@ can't show the other glitches. Without it the frame is blank, and there is nothi
 
 ## Not done yet
 
-- **A real engine.** Official Godot builds for macOS link MoltenVK into the engine, so the Vulkan loader, and with it
-  every layer, is skipped. Godot built from source with `use_volk=yes` should load it. On Linux and Windows, engines go
-  through the loader.
-- **Things passed through unbroken:**
-  - draws in secondary command buffers, with `FRAMEHOUND_SHADOW_ALL` (on capture frames they are broken like any
-    other)
-  - submits with anything in `pNext` other than timeline semaphore values
-
-  Indirect draws can be broken in every way except `dropped_faces`, since the GPU reads their counts.
+- **A real game.** The Godot scene is small and made for the test. A game made with Godot, or another engine, is next.
+- **Godot's names.** This Godot build doesn't name its Vulkan objects, so the report describes textures by size.
+- **Things passed through unbroken:** draws in secondary command buffers, with `FRAMEHOUND_SHADOW_ALL` (on capture
+  frames they are broken like any other). Indirect draws can be broken in every way except `dropped_faces`, since the
+  GPU reads their counts.
+- **Copies of one mesh.** A mesh drawn in many places is broken in all of them at once. One copy alone can't be broken
+  yet: the passes of an engine like Godot don't share anything that says which copy a draw is.
 - **State the GPU carries between frames.** Each copy is a full extra submit. Effects that keep history on the GPU,
   such as temporal anti-aliasing, see the frame once per copy and drift.
 - **Glitches that need the app's vertex data.** Lost texture coordinates and exploded vertices need copies of vertex

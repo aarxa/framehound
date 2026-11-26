@@ -18,6 +18,13 @@ HANDLED = {
     "vkCmdDrawIndexedIndirectCount", "vkCmdDrawIndexedIndirectCountKHR", "vkCmdDrawIndexedIndirectCountAMD",
 }
 
+# generated, but also reported to a Note<Command>(Recording*, args) function in layer.cpp, which keeps track of the
+# buffers a draw reads: the mesh it draws
+NOTED = {
+    "vkCmdBindIndexBuffer", "vkCmdBindIndexBuffer2", "vkCmdBindIndexBuffer2KHR",
+    "vkCmdBindVertexBuffers", "vkCmdBindVertexBuffers2", "vkCmdBindVertexBuffers2EXT",
+}
+
 
 def apis(el, attr="api"):
     v = el.get(attr)
@@ -87,6 +94,8 @@ def main(registry, out):
         lines.append(f"  Recording* r = RecordingOf({names[0]});")
         lines.append(f"  r->device->cmd.{n[2:]}({names[0]}{call_rest});")
         lines.append(f"  for (VkCommandBuffer s : r->shadows) r->device->cmd.{n[2:]}(s{call_rest});")
+        if n in NOTED:
+            lines.append(f"  Note{n[2:]}(r{call_rest});")
         lines.append("}")
     lines.append("")
     lines.append("static PFN_vkVoidFunction GeneratedCommand(const char* name) {")
