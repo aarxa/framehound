@@ -1054,10 +1054,15 @@
   }
 
   // Which draw calls drew the flagged pixels: draw the frame once with each draw left out, and see which pixels change.
-  // With the model's heatmap (`heat`: a coarse grid over the frame), a draw is ranked by the share of the heat it
-  // explains times the mean heat over what it draws, so a full-screen pass or the ground behind an object ranks below
-  // the object itself. Without one, the same is done with the box (x0, y0, x1, y1 in frame pixels) as the heat.
+  // With the model's heatmap (`heat`: a coarse grid over the frame), a draw is ranked by the square root of the share of
+  // the heat it explains, times the mean heat over what it draws. So a full-screen pass or the ground behind an object
+  // ranks below the object itself, and the square root favours a draw that is mostly flagged over a bigger one that
+  // explains a little more. Only heat above HEAT_FLOOR counts: faint heat spread over the frame otherwise adds up over a
+  // big draw such as the ground, which then outranks the small draw that is broken. If no heat reaches the floor, half
+  // the hottest heat is the floor.
+  // Without a heatmap, the box (x0, y0, x1, y1 in frame pixels) stands in for it: share of the box times share inside.
   // (Counting draws to offscreen targets, such as shadow maps, at half was tried: on two games it didn't help.)
+  const HEAT_FLOOR = 0.3;
   function locate({ box, heat = null, pad = 6, top = 3 }) {
     if (!clean) return { ok: false, reason: 'not settled' };
     const t0 = realNow();
@@ -1074,6 +1079,11 @@
     const cellH = heat ? outH / heat.rows : 1;
     const heatAt = (x, y) => heat.values[Math.min(heat.rows - 1, (y / cellH) | 0) * heat.cols + Math.min(heat.cols - 1, (x / cellW) | 0)];
     const heatTotal = heat ? heat.values.reduce((s, v) => s + v, 0) * cellW * cellH : 0;
+    // heat above the floor; when nothing reaches it (an app with a low threshold), heat above half the hottest cell
+    const peak = heat ? heat.values.reduce((m, v) => Math.max(m, v), 0) : 0;
+    const floor = peak > HEAT_FLOOR ? HEAT_FLOOR : peak / 2;
+    const hotOf = (v) => Math.max(0, v - floor);
+    const hotTotal = heat ? heat.values.reduce((s, v) => s + hotOf(v), 0) * cellW * cellH : 0;
     // with a planted glitch, the truly broken pixels too, to measure the ranking apart from the model's heatmap
     const cleanPix = planted ? pixels(clean) : null;
     const isTrue = (i) => Math.max(Math.abs(cleanPix[i] - refPix[i]), Math.abs(cleanPix[i + 1] - refPix[i + 1]), Math.abs(cleanPix[i + 2] - refPix[i + 2])) > DIFF_THRESHOLD;
@@ -1092,6 +1102,7 @@
       let inside = 0;
       let total = 0;
       let warm = 0;
+      let hot = 0;
       let onTrue = 0;
       let bx0 = outW;
       let by0 = outH;
@@ -1102,7 +1113,11 @@
           const dd = Math.max(Math.abs(px[i] - refPix[i]), Math.abs(px[i + 1] - refPix[i + 1]), Math.abs(px[i + 2] - refPix[i + 2]));
           if (dd <= DIFF_THRESHOLD) continue;
           total++;
-          if (heat) warm += heatAt(x, y);
+          if (heat) {
+            const h = heatAt(x, y);
+            warm += h;
+            hot += hotOf(h);
+          }
           if (cleanPix && isTrue(i)) onTrue++;
           if (x >= x0 && x < x1 && y >= y0 && y < y1) inside++;
           if (x < bx0) bx0 = x;
@@ -1115,14 +1130,15 @@
       if (total) {
         const canvas = mainCanvas();
         stats.push({
-          index: d.index, total, inside, warm: +warm.toFixed(1), on_true: onTrue, fullscreen: d.fullscreen && total > 0.5 * outW * outH,
+          index: d.index, total, inside, warm: +warm.toFixed(1), hot: +hot.toFixed(1), on_true: onTrue, fullscreen: d.fullscreen && total > 0.5 * outW * outH,
           direct: !d.target || (canvas && d.target[0] === canvas.width && d.target[1] === canvas.height),
         });
       }
-      if (heat ? warm > 0 : inside) {
-        const coverage = heat ? warm / heatTotal : inside / area;
-        const focus = heat ? warm / total : inside / total;
-        found.push({ index: d.index, inside, total, coverage, focus, score: coverage * focus, whole_frame: total > 0.5 * outW * outH, bbox: [bx0, by0, bx1 + 1, by1 + 1] });
+      if (heat ? hot > 0 : inside) {
+        const coverage = heat ? hot / hotTotal : inside / area;
+        // mean heat above the floor, scaled to 0–1
+        const focus = heat ? hot / (total * (1 - floor)) : inside / total;
+        found.push({ index: d.index, inside, total, coverage, focus, score: (heat ? Math.sqrt(coverage) : coverage) * focus, whole_frame: total > 0.5 * outW * outH, bbox: [bx0, by0, bx1 + 1, by1 + 1] });
       }
     }
     found.sort((a, b) => b.score - a.score);
@@ -1153,7 +1169,7 @@
     const back = same(ref, grab());
     return {
       ok: true, box: [x0, y0, x1, y1], tried, drew_in_box: found.length, draws, back,
-      stats, area, heat_total: heatTotal, true_total: trueTotal,
+      stats, area, heat_total: heatTotal, heat_floor: floor, hot_total: hotTotal, true_total: trueTotal,
       ranks: found.map((f) => f.index), seconds: +((realNow() - t0) / 1000).toFixed(1),
     };
   }

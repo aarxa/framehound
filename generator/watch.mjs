@@ -165,6 +165,8 @@ for (let m = 0; m < maxMoments && (Date.now() - t0) / 60000 < minutes; m++) {
       entry.located.stats = loc.stats;
       entry.located.area = loc.area;
       entry.located.heat_total = loc.heat_total;
+      entry.located.heat_floor = loc.heat_floor;
+      entry.located.hot_total = loc.hot_total;
       if (planted) entry.located.true_total = loc.true_total;
       if (planted) {
         const r = loc.ranks.indexOf(planted.draw);

@@ -4,8 +4,9 @@
 2. The model learned for the app checks those frames.
 3. The app runs again. On the flagged frames, the layer draws the frame once per draw call with that draw left out
    (FRAMEHOUND_LOCATE).
-4. Draws are ranked as in the WebGL watch: by how much of the model's heatmap the pixels they draw explain, times how
-   much of what they draw is flagged. report.html shows each flagged frame and the draws found there.
+4. Draws are ranked as in the WebGL watch: by the square root of how much of the model's heatmap the pixels they draw
+   explain, times how much of what they draw is flagged, counting only heat above HEAT_FLOOR. report.html shows each
+   flagged frame and the draws found there.
 
     .venv/bin/python native/locate.py --model models/native-scene --out watch/native-bug \\
         [--start 20 --every 20 --count 15] [--expect 5] -- native/build/fh_scene --frames 340 --bug texture:5
@@ -28,6 +29,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 DIFF = 12  # per channel: below this a pixel counts as unchanged, as in the injector
+HEAT_FLOOR = 0.3  # heat below this doesn't count when ranking draws, as in the injector
 
 
 def run_app(cmd, settings):
@@ -107,7 +109,10 @@ def main():
         grid = np.asarray(heat["values"], dtype=np.float32).reshape(heat["rows"], heat["cols"])
         H, W = frame.shape[:2]
         heat_full = np.asarray(Image.fromarray(grid).resize((W, H), Image.NEAREST))
-        total_heat = float(heat_full.sum())
+        peak = float(heat_full.max())
+        floor = HEAT_FLOOR if peak > HEAT_FLOOR else peak / 2  # if no heat reaches the floor, half the hottest
+        hot = np.maximum(heat_full - floor, 0)
+        total_hot = float(hot.sum())
         found = []
         for dr in json.load(open(d / "draws.json")):
             path = d / f"without-{dr['index']}.png"
@@ -115,10 +120,11 @@ def main():
                 continue
             mask = changed(frame, np.asarray(Image.open(path).convert("RGB")))
             n = int(mask.sum())
-            warm = float(heat_full[mask].sum())
+            warm = float(hot[mask].sum())
             if not n or warm <= 0:
                 continue
-            found.append({**dr, "pixels": n, "explains": warm / total_heat, "flagged_share": warm / n, "score": warm / total_heat * warm / n, "mask": mask})
+            explains, share = warm / total_hot, warm / (n * (1 - floor))
+            found.append({**dr, "pixels": n, "explains": explains, "flagged_share": share, "score": explains ** 0.5 * share, "mask": mask})
         found.sort(key=lambda x: -x["score"])
         for rank, x in enumerate(found[:3]):
             pic = out / "draws" / f"{f['frame']}-{rank + 1}.jpg"

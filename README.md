@@ -23,8 +23,8 @@ What it does so far:
 - **Catches real bugs.** On a three.js release that shipped a broken shader, it flags every frame and names the two
   draws that use the shader. On a HexGL build with the wrong ship texture, it names the ship's draw and the texture
   file.
-- **Names the right draw.** When the broken draw draws to the frame itself, watch names it first 71% of the time on
-  HexGL and 90% on Edelweiss.
+- **Names the right draw.** When the broken draw draws to the frame itself, watch names it first 67% of the time on
+  HexGL and 71% on Edelweiss, and puts it in the top three 80% and 100% of the time.
 - **Works natively too.** The C++ Vulkan layer breaks draws in native Vulkan apps the same way, and works on replays
   of recorded sessions. It's built and checked on macOS, and on Linux in CI.
 
@@ -73,7 +73,7 @@ models trained on each page's own earlier frames score 0.89–0.93.
 **Without an engine.** A small WebGL 2 page written by hand, with no engine
 (`generator/apps/pages/raw-webgl.html`, 13 draws), learned from ten minutes of play:
 - AUROC 0.98 (95% CI 0.96–0.99) on later views it never trained on.
-- In a 12-minute watch run with planted glitches, it flagged 115 of 121 broken frames and 2 of 111 clean ones.
+- In a 12-minute watch run with planted glitches, it flagged 115 of 121 broken frames and 3 of 111 clean ones.
 - It named the broken draw first every time it still drew (85 of 85).
 
 It's an easy scene: every draw goes straight to the frame, and objects rarely overlap. What it shows is that the
@@ -112,37 +112,43 @@ Two more cases were left out:
   every frame is flagged. The first two draws named are the ground and the object, both drawn with the broken
   lightmap shader (they sample the 1024×1024 lightmap). Finding them takes 0.2 s per frame.
 - **A wrong asset.** In a copy of HexGL, the ship's texture file holds the track's texture instead, as if the wrong
-  file had shipped. The model learned on the right build flags 60 of 75 frames, against about 7% of frames on the
-  right build. The report's top table names the same draw first in 52 of them: 1,676 triangles sampling
+  file had shipped. The model learned on the right build flags 63 of 86 frames, against about 6% of frames on the
+  right build. The report's top table names the same draw first in 58 of them: 1,676 triangles sampling
   `ships/feisar/diffuse.jpg`, the file to check.
 
 ![The top of watch's report on the HexGL build with the wrong ship texture](docs/watch-report.jpg)
 
-To measure naming, watch played each game for 12 minutes and broke a known draw on about half the frames
+To measure naming, watch played each game twice for 12 minutes and broke a known draw on about half the frames
 (`--plant 0.5`):
-- **HexGL, over four runs:** 281 of 372 broken frames flagged (76%), and 24 of 351 clean ones (7%).
-- **Edelweiss:** 58 of 83 (70%), and 19 of 139 clean ones (14%). But 18 of those 19 show no level at all, only the
-  background colour around the character: the random walk had fallen off the world. Of the 121 clean frames that show
+- **HexGL:** 141 of 189 broken frames flagged (75%), and 11 of 172 clean ones (6%).
+- **Edelweiss:** 101 of 157 (64%), and 38 of 283 clean ones (13%). But 37 of those 38 show no level at all, only the
+  background colour around the character: the random walk had fallen off the world. Of the 236 clean frames that show
   the game, one was flagged. On the separate test session's 111 clean frames, the same threshold flags 6%.
 
-How often the broken draw came first, on the flagged frames of the last HexGL run and the Edelweiss run:
+How often the broken draw came first, on the flagged frames of both runs:
 
 | Broken draw | HexGL | Edelweiss |
 |---|---|---|
-| a draw to the frame itself: named first | **29 of 41** (71%) | **27 of 30** (90%) |
-| the same, in the top three | 31 of 41 (76%) | 30 of 30 (100%) |
-| the same, ranked by the truly broken pixels instead of the model's heatmap | 37 of 41 (90%) | 27 of 30 (90%) |
-| a draw into a shadow map or another offscreen target: named first | 1 of 11 | 3 of 11 |
-| a draw that was left out, or that leaves the frame unchanged when left out | 27, can't be named | 17, can't be named |
+| a draw to the frame itself: named first | **55 of 82** (67%) | **39 of 55** (71%) |
+| the same, in the top three | 66 of 82 (80%) | 55 of 55 (100%) |
+| the same, with the ranking used before (below) | 47 of 82 (57%) | 38 of 55 (69%) |
+| the same, ranked by the truly broken pixels instead of the model's heatmap | 72 of 82 (88%) | 40 of 55 (73%) |
+| a draw into a shadow map or another offscreen target: named first | 2 of 18 | 11 of 19 |
+| a draw that was left out, or that leaves the frame unchanged when left out | 41, can't be named | 27, can't be named |
 
-- **Offscreen draws.** A draw into a shadow map only shows through the surfaces that receive the shadow. Leaving it out
-  changes those surfaces more than the glitch did, so it is rarely pinned down.
+- **Offscreen draws.** A draw into a shadow map only shows through the surfaces that receive the shadow. Leaving it
+  out changes those surfaces more than the glitch did, so on HexGL it is rarely pinned down.
 - **Draws that can't be named.** A draw that was left out never drew anything. Some glitches also leave the frame
   as if the draw wasn't there, such as a sky turned inside out. Neither leaves anything to find.
-- **The heatmap's cost.** On HexGL, where the model points loses 19 points against the truly broken pixels. A better
-  heatmap means better naming. A plain box around the flagged area does worse still: on the same HexGL frames, 34%
-  first against 51% with the heatmap, counting all kinds. Reading the heatmap on a finer grid (4 px cells instead of
+- **The heatmap's cost.** On HexGL, where the model points loses 21 points against the truly broken pixels. A better
+  heatmap means better naming. A plain box around the flagged area does worse still: on the same HexGL frames, 31%
+  first against 53% with the heatmap, counting all kinds. Reading the heatmap on a finer grid (4 px cells instead of
   8) made no difference on another run's frames.
+- **Faint heat.** Watch used to count all of the heatmap. On three.js's animated robot example
+  (`webgl_animation_skinning_morph`), faint heat spread over the frame added up over the big ground plane, which was
+  named first in most frames. Now only heat above 0.3 counts, and the share of heat a draw explains is square-rooted,
+  which favours a draw that is mostly flagged over a bigger one. In a planted run on the robot, that names the broken
+  draw first in 35 of 50 frames, against 9 of 50 with the old ranking (43 with the truly broken pixels).
 
 **The Vulkan layer** (`native/`) breaks draw calls in native Vulkan apps the same way, in six of the eleven ways so
 far:
@@ -270,9 +276,10 @@ node framehound.mjs learn '/HexGL/index.html?controlType=0&hud=0&godmode=1' --id
   patch, and the frame doesn't go blank. Faint changes such as a bloom halo, or a black frame, which looks like a clean
   empty scene, are thrown away.
 - **Finds the draws behind a flagged area (watch).** The frozen frame is drawn again once per draw call with that draw
-  left out, and the pixels that change are that draw's. Draws are ranked by how much of the model's heatmap they
-  explain times how much of what they draw is flagged. That puts the object itself ahead of the ground behind it.
-  A replayed frame takes 0.1–0.4 s for all of HexGL's ~30 draws.
+  left out, and the pixels that change are that draw's. Draws are ranked by the square root of how much of the model's
+  heatmap they explain, times how much of what they draw is flagged, counting only heat above 0.3. That puts the object
+  itself ahead of the ground behind it, even when faint heat spreads over the whole frame. A replayed frame takes
+  0.1–0.4 s for all of HexGL's ~30 draws.
 
 The eleven kinds of breakage:
 
